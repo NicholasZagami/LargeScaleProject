@@ -1,0 +1,23 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Kafka Configuration
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS')
+KAFKA_GAMES_GROUP_ID = os.getenv('KAFKA_GAMES_GROUP_ID')
+KAFKA_GAMES_TOPIC_NAME = os.getenv('KAFKA_GAMES_TOPIC_NAME')
+KAFKA_REVIEW_GROUP_ID = os.getenv('KAFKA_REVIEW_GROUP_ID')
+KAFKA_REVIEW_TOPIC_NAME = os.getenv('KAFKA_REVIEW_TOPIC_NAME')
+
+# MongoDB Configuration
+MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
+MONGO_DB_NAME = os.getenv('MONGO_DB_NAME')
+MONGO_GAME_COLLECTION_NAME = os.getenv('MONGO_GAME_COLLECTION_NAME')
+MONGO_REVIEW_COLLECTION_NAME = os.getenv('MONGO_REVIEW_COLLECTION_NAME')
+
+# Cassandra Configuration
+CASSANDRA_HOST = os.getenv('CASSANDRA_HOST')
+CASSANDRA_PORT = int(os.getenv('CASSANDRA_PORT'))
+CASSANDRA_KEYSPACE = os.getenv('CASSANDRA_KEYSPACE')

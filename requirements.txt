@@ -1,0 +1,5 @@
+kafka-python
+polars
+pymongo
+dotenv
+cassandra-driver
