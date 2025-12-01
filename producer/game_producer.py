@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from pathlib import Path
 
 from kafka import KafkaProducer
 import polars as pl
@@ -14,9 +15,14 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v, default=custom_serializer).encode('utf-8')
 )
 
-topic = 'review-topic'
+topic = 'games-topic'
+file_path = Path("../file-example/steam_games_2025-08-12_0.parquet")
 
-df = pl.read_parquet("")
+# Check if the file exists
+if not file_path.exists():
+    raise FileNotFoundError(f"File not found: {file_path.resolve()}")
+
+df = pl.read_parquet(file_path)
 
 for row in df.to_dicts():
     print(row)
