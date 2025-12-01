@@ -1,15 +1,10 @@
-import os
-import sys
 from cassandra.cluster import Cluster
-from consumer.consumer import BaseConsumer
-
-# Aggiungi la root del progetto al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from base_consumer import BaseConsumer
 import config
 
-# Connect to MongoDB con connection string
-print("Connecting to Cassandra...")
 # Connessione a Cassandra
+print("Connecting to Cassandra...")
+
 cluster = Cluster(
     contact_points=[config.CASSANDRA_HOST],
     port=config.CASSANDRA_PORT
@@ -30,19 +25,32 @@ print(f"✓ Keyspace '{config.CASSANDRA_KEYSPACE}' created/verified")
 # Usa il keyspace
 session.set_keyspace(config.CASSANDRA_KEYSPACE)
 
-games_table_query = """
-    CREATE TABLE IF NOT EXISTS games (
-        appid int PRIMARY KEY,
-        name text,
-        genre text,
-        categories text,
-        is_free boolean,
-        price decimal
+reviews_table_query = """
+    CREATE TABLE IF NOT EXISTS reviews (
+        rec_id bigint,
+        author_id bigint,
+        appid bigint,
+        playtime_forever bigint,
+        playtime_at_review bigint,
+        num_reviews bigint,
+        last_played bigint,
+        language text,
+        review text,
+        voted_up boolean,
+        votes_up bigint,
+        votes_funny bigint,
+        received_for_free boolean,
+        written_during_early_access boolean,
+        sent_compound float,
+        sentiment_0_10 float,
+        sentiment_0_10_round int,
+        PRIMARY KEY (rec_id)
     )
 """
-session.execute(games_table_query)
-print(f"✓ Table 'review' created/verified")
-print(f"✓ Connected to Cassandra: {config.CASSANDRA_KEYSPACE}.review\n")
+
+session.execute(reviews_table_query)
+print(f"Table 'review' created/verified")
+print(f"Connected to Cassandra: {config.CASSANDRA_KEYSPACE}.review\n")
 
 print("\n=== Starting Review Consumer ===\n")
 review_consumer = BaseConsumer(
@@ -55,4 +63,4 @@ review_consumer = BaseConsumer(
 # Start consuming
 review_consumer.consume_messages(
     db_type="cassandra",
-    mongo_collection=session)
+    cassandra_session=session)

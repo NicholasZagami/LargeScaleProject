@@ -1,11 +1,5 @@
-import sys
-import os
-
-# Aggiungi la root del progetto al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from pymongo import MongoClient
-from consumer.consumer import BaseConsumer
+from base_consumer import BaseConsumer
 import config
 
 # Connect to MongoDB con connection string

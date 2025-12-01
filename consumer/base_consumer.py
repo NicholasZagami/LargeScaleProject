@@ -1,7 +1,7 @@
 import json
 import logging
 from kafka import KafkaConsumer
-from model.game import Game
+from model.review import Review
 
 # Configure logging
 logging.basicConfig(
@@ -50,17 +50,17 @@ class BaseConsumer:
             pass
         elif db_type == 'cassandra':
             try:
-                game = Game.from_kafka_message(message.value)
-                columns = Game.get_cassandra_columns()
+                review = Review.from_kafka_message(message.value)
+                columns = Review.get_cassandra_columns()
                 placeholders = ', '.join(['?' for _ in columns])
                 column_names = ', '.join(columns)
-                query = f"INSERT INTO games ({column_names}) VALUES ({placeholders})"
+                query = f"INSERT INTO reviews ({column_names}) VALUES ({placeholders})"
 
                 prepared = cassandra_session.prepare(query)
-                cassandra_session.execute(prepared, game.to_cassandra_values())
-                logger.info(f"Game inserted into Cassandra: {game.name}")
+                cassandra_session.execute(prepared, review.to_cassandra_values())
+                logger.info(f"Review inserted into Cassandra: {review.rec_id}")
             except Exception as e:
-                logger.error(f"Error inserting game into Cassandra: {e}")
+                logger.error(f"Error inserting reviews into Cassandra: {e}")
                 pass
         else:
             raise ValueError(f"Unsupported database type: {db_type}")
