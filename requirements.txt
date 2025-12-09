@@ -3,3 +3,4 @@ polars
 pymongo
 dotenv
 cassandra-driver
+prefect

@@ -15,8 +15,8 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v, default=custom_serializer).encode('utf-8')
 )
 
-topic = 'games-topic'
-file_path = Path("../file-example/steam_games_2025-08-12_0.parquet")
+topic = 'review-topic'
+file_path = Path("../../file-example/steam_reviews_2025-08-22_0.parquet")
 
 # Check if the file exists
 if not file_path.exists():

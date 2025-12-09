@@ -1,7 +1,7 @@
 import json
 import logging
 from kafka import KafkaConsumer
-from model.review import Review
+from external_domain.model.review import Review
 
 # Configure logging
 logging.basicConfig(
