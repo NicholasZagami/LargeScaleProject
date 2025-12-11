@@ -1,0 +1,16 @@
+# Dockerfile.streamlit
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dipendenze
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia tutto il progetto (backend + frontend)
+COPY . .
+
+# Lavoriamo dentro la cartella frontend
+WORKDIR /app/frontend
+
+CMD ["streamlit", "run", "Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
