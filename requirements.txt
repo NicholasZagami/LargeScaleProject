@@ -7,3 +7,4 @@ prefect
 pyarrow
 psycopg2
 minio
+streamlit>=1.38.0
