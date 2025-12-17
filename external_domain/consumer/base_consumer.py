@@ -1,3 +1,5 @@
+from datetime import datetime
+from pytz import timezone
 import json
 import logging
 from kafka import KafkaConsumer
@@ -9,6 +11,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+tz = timezone('Europe/Rome')
 
 class BaseConsumer:
     def __init__(
@@ -39,6 +43,7 @@ class BaseConsumer:
             try:
                 # extract message properties to save on db
                 value = message.value
+                value['updated_at'] = datetime.now(tz)
                 mongo_collection.update_one(
                     {'appid': value['appid']},
                     {'$set': value},
@@ -51,13 +56,14 @@ class BaseConsumer:
         elif db_type == 'cassandra':
             try:
                 review = Review.from_kafka_message(message.value)
-                columns = Review.get_cassandra_columns()
+                review.updated_at = datetime.now(tz)
+                columns = Review.get_cassandra_columns() + ['updated_at']
                 placeholders = ', '.join(['?' for _ in columns])
                 column_names = ', '.join(columns)
                 query = f"INSERT INTO reviews ({column_names}) VALUES ({placeholders})"
 
                 prepared = cassandra_session.prepare(query)
-                cassandra_session.execute(prepared, review.to_cassandra_values())
+                cassandra_session.execute(prepared, review.to_cassandra_values() + (review.updated_at,))
                 logger.info(f"Review inserted into Cassandra: {review.rec_id}")
             except Exception as e:
                 logger.error(f"Error inserting reviews into Cassandra: {e}")

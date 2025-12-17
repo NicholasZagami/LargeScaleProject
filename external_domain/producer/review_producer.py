@@ -16,7 +16,7 @@ producer = KafkaProducer(
 )
 
 topic = 'review-topic'
-file_path = Path("../../file-example/steam_reviews_2025-08-22_0.parquet")
+file_path = Path("E:\Projects\LargeScaleProject\\file-example\steam_reviews_2025-08-22_0.parquet")
 
 # Check if the file exists
 if not file_path.exists():

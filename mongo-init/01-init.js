@@ -3,6 +3,5 @@ db = db.getSiblingDB('steam_db');
 
 // Create the games collection
 db.createCollection('games');
-db.createCollection('review');
 
 print("Games collection created successfully!");

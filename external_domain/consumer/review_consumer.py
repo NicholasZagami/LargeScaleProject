@@ -44,6 +44,7 @@ reviews_table_query = """
         sent_compound float,
         sentiment_0_10 float,
         sentiment_0_10_round int,
+        updated_at timestamp,
         PRIMARY KEY (rec_id)
     )
 """

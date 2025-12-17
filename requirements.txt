@@ -4,3 +4,6 @@ pymongo
 dotenv
 cassandra-driver
 prefect
+pyarrow
+psycopg2
+minio
