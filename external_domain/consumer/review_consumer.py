@@ -1,5 +1,5 @@
 from cassandra.cluster import Cluster
-from base_consumer import BaseConsumer
+from external_domain.consumer.base_consumer import BaseConsumer
 import config
 
 # Connessione a Cassandra

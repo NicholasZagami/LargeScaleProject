@@ -16,7 +16,7 @@ producer = KafkaProducer(
 )
 
 topic = 'games-topic'
-file_path = Path("E:\Projects\LargeScaleProject\\file-example\steam_games_2025-08-12_0.parquet")
+file_path = Path("E:\Projects\LargeScaleProject\\file-example\games_concat.parquet")
 
 # Check if the file exists
 if not file_path.exists():

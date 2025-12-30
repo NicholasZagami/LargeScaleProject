@@ -31,14 +31,14 @@ DROP TABLE IF EXISTS Publisher CASCADE;
 -- ============================================
 
 CREATE TABLE Date (
-    ID_date SERIAL PRIMARY KEY,
+    ID_date VARCHAR(255) PRIMARY KEY,
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
     day INTEGER NOT NULL
 );
 
 CREATE TABLE UserTable (
-    ID_UserTable SERIAL PRIMARY KEY,
+    ID_UserTable VARCHAR(255) PRIMARY KEY,
     playtime_at_review INTEGER,
     playtime_forever INTEGER,
     review_number INTEGER,
@@ -63,12 +63,12 @@ CREATE TABLE Publisher (
 );
 
 CREATE TABLE Game (
-    ID_game SERIAL PRIMARY KEY,
+    ID_game VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     review_score INTEGER,
     required_age INTEGER,
     free_to_play BOOLEAN,
-    release_date DATE
+    release_date VARCHAR(255)
 );
 
 -- ============================================
@@ -77,9 +77,9 @@ CREATE TABLE Game (
 
 CREATE TABLE Review (
     ID_rec VARCHAR(255) PRIMARY KEY,
-    ID_UserTable INTEGER NOT NULL,
-    ID_game INTEGER NOT NULL,
-    ID_date INTEGER NOT NULL,
+    ID_UserTable VARCHAR(255) NOT NULL,
+    ID_game VARCHAR(255) NOT NULL,
+    ID_date VARCHAR(255) NOT NULL,
     votes_up INTEGER DEFAULT 0,
     votes_funny INTEGER DEFAULT 0,
     comment_count INTEGER DEFAULT 0,
@@ -97,7 +97,7 @@ CREATE TABLE Review (
 
 -- Game-Genre Bridge Table
 CREATE TABLE Genre_Game (
-    ID_game INTEGER NOT NULL,
+    ID_game VARCHAR(255) NOT NULL,
     ID_genre INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_genre),
     FOREIGN KEY (ID_game) REFERENCES Game(ID_game) ON DELETE CASCADE,
@@ -106,7 +106,7 @@ CREATE TABLE Genre_Game (
 
 -- Game-Category Bridge Table
 CREATE TABLE Category_Game (
-    ID_game INTEGER NOT NULL,
+    ID_game VARCHAR(255) NOT NULL,
     ID_category INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_category),
     FOREIGN KEY (ID_game) REFERENCES Game(ID_game) ON DELETE CASCADE,
@@ -115,7 +115,7 @@ CREATE TABLE Category_Game (
 
 -- Game-Publisher Bridge Table
 CREATE TABLE Publisher_Game (
-    ID_game INTEGER NOT NULL,
+    ID_game VARCHAR(255) NOT NULL,
     ID_publisher INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_publisher),
     FOREIGN KEY (ID_game) REFERENCES Game(ID_game) ON DELETE CASCADE,

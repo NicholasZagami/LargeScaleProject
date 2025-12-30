@@ -3,18 +3,22 @@ import polars as pl
 
 from prefect import flow
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import config
-from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio, extract_and_update_fixed_item_tables, bulk_insert_all_data)
+from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio)
 from dwh_domain.utils.file_writer import write_parquet_file
 from dwh_domain.tasks.load import load_to_minio
+from dwh_domain.service.db_service import DwhRepository
 
 @flow(name="etl_pipeline")
 def etl_pipeline():
     print("ETL pipeline started...")
+    
+    repository = DwhRepository()
 
-    mongo_data = extract_from_mongodb(extraction_date='2025-12-14')
-    cassandra_data = extract_from_cassandra(extraction_date='2025-12-17')
+    mongo_data = extract_from_mongodb(extraction_date='2025-12-29')
+    cassandra_data = extract_from_cassandra(extraction_date='2025-12-28')
 
     print(f"Extracted {len(mongo_data)} records from MongoDB.")
     print(f"Extracted {len(cassandra_data)} records from Cassandra.")
@@ -42,11 +46,19 @@ def etl_pipeline():
 
     engine = create_engine(config.POSTGRES_CONNECTION_STRING)
     with engine.connect() as conn:
-        extract_and_update_fixed_item_tables(conn, game_df,  'genres', 'Genre')
-        extract_and_update_fixed_item_tables(conn, game_df, 'categories', 'Category')
-        extract_and_update_fixed_item_tables(conn, game_df, 'publishers', 'Publisher')
+        repository.extract_and_update_fixed_item_tables(conn, game_df,  'genres', 'Genre')
+        repository.extract_and_update_fixed_item_tables(conn, game_df, 'categories', 'Category')
+        repository.extract_and_update_fixed_item_tables(conn, game_df, 'publishers', 'Publisher')
         conn.commit()
 
-    bulk_insert_all_data(game_df, review_df)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        repository.bulk_insert_games_and_bridge(session, game_df)
+        repository.bulk_insert_user_table(session, review_df)
+        review_df_updated = repository.bulk_insert_date_table(session, review_df)
+        repository.bulk_insert_review(session, review_df_updated)
+    finally:
+        session.close()
 
     print("ETL pipeline completed.")
