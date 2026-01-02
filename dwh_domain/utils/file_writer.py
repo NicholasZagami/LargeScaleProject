@@ -1,4 +1,6 @@
 import os
+import uuid
+
 import polars as pl
 
 
@@ -34,3 +36,6 @@ def write_parquet_file(data, run_id, extraction_date, output_dir='./tmp/parquet'
     print(f"Parquet file created successfully: {absolute_path}")
 
     return absolute_path, filename
+
+def generate_run_id():
+    return str(uuid.uuid4())
