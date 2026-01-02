@@ -8,11 +8,12 @@ from dwh_domain.model.dwh_model import (
     GenreGame, CategoryGame, PublisherGame
 )
 
+log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
 class DwhRepository:
     def __init__(self):
         pass
-    
+    @staticmethod
     def extract_and_update_fixed_item_tables(conn, df, df_column, table_name):
         unique_values = df[df_column].explode().drop_nulls().unique().to_list()
 
@@ -30,8 +31,14 @@ class DwhRepository:
 
         print(f"Updated table '{table_name}' with unique values from column '{df_column}'.")
         
-    
-    def bulk_insert_games_and_bridge(session, game_df: pl.DataFrame, batch_size: int = 10000):
+    @staticmethod
+    def bulk_insert_games_and_bridge(
+            session,
+            game_df: pl.DataFrame,
+            genre_game_df: pl.DataFrame,
+            category_game_df: pl.DataFrame,
+            publisher_game_df: pl.DataFrame,
+            batch_size: int = 10000):
         """
         Bulk insert games and bridge tables in batches with optimized lookups.
 
@@ -126,19 +133,14 @@ class DwhRepository:
 
         if 'genres' in game_df.columns:
             log.info("Processing genre-game relationships...")
-            games_genres = (
-                game_df.select(['appid', 'genres'])
-                .explode('genres')
-                .drop_nulls()
-            )
 
-            total_genre_relations = len(games_genres)
+            total_genre_relations = len(genre_game_df)
             genre_relations_inserted = 0
             bridge_objects = []
 
             for batch_start in range(0, total_genre_relations, batch_size):
                 batch_end = min(batch_start + batch_size, total_genre_relations)
-                batch_genres = games_genres[batch_start:batch_end]
+                batch_genres = genre_game_df[batch_start:batch_end]
 
                 for row in batch_genres.iter_rows(named=True):
                     game_id = str(row['appid'])
@@ -166,19 +168,14 @@ class DwhRepository:
 
         if 'categories' in game_df.columns:
             log.info("Processing category-game relationships...")
-            games_categories = (
-                game_df.select(['appid', 'categories'])
-                .explode('categories')
-                .drop_nulls()
-            )
 
-            total_category_relations = len(games_categories)
+            total_category_relations = len(category_game_df)
             category_relations_inserted = 0
             bridge_objects = []
 
             for batch_start in range(0, total_category_relations, batch_size):
                 batch_end = min(batch_start + batch_size, total_category_relations)
-                batch_categories = games_categories[batch_start:batch_end]
+                batch_categories = category_game_df[batch_start:batch_end]
 
                 for row in batch_categories.iter_rows(named=True):
                     game_id = str(row['appid'])
@@ -206,19 +203,14 @@ class DwhRepository:
 
         if 'publishers' in game_df.columns:
             log.info("Processing publisher-game relationships...")
-            games_publishers = (
-                game_df.select(['appid', 'publishers'])
-                .explode('publishers')
-                .drop_nulls()
-            )
 
-            total_publisher_relations = len(games_publishers)
+            total_publisher_relations = len(publisher_game_df)
             publisher_relations_inserted = 0
             bridge_objects = []
 
             for batch_start in range(0, total_publisher_relations, batch_size):
                 batch_end = min(batch_start + batch_size, total_publisher_relations)
-                batch_publishers = games_publishers[batch_start:batch_end]
+                batch_publishers = publisher_game_df[batch_start:batch_end]
 
                 for row in batch_publishers.iter_rows(named=True):
                     game_id = str(row['appid'])
@@ -247,7 +239,7 @@ class DwhRepository:
         session.commit()
         print("✅ All games and bridge tables populated successfully!")
 
-
+    @staticmethod
     def bulk_insert_date_table(session, review_df: pl.DataFrame, batch_size: int = 10000):
 
         log.info(f"Bulk inserting dates in batches of {batch_size}...")
@@ -349,6 +341,7 @@ class DwhRepository:
 
         return review_df
 
+    @staticmethod
     def bulk_insert_user_table(session, review_df: pl.DataFrame, batch_size: int = 10000):
         """
         Bulk insert users in batches.
@@ -385,15 +378,6 @@ class DwhRepository:
             # Get unique users
             unique_users = review_df.select(user_columns).unique()
             total_users = len(unique_users)
-
-            # Convert Unix timestamp to datetime if needed
-            if 'last_played' in user_columns:
-                unique_users = unique_users.with_columns([
-                    pl.when(pl.col('last_played').is_not_null() & (pl.col('last_played') > 0))
-                    .then(pl.from_epoch('last_played', time_unit='s'))
-                    .otherwise(None)
-                    .alias('last_played')
-                ])
 
             log.info(f"Processing {total_users} unique users...")
             users_inserted = 0
@@ -441,7 +425,7 @@ class DwhRepository:
             session.commit()
             print(f"✅ Total users inserted: {users_inserted}")
 
-
+    @staticmethod
     def bulk_insert_review(session, review_df: pl.DataFrame, batch_size: int = 10000):
         """
         Bulk insert reviews in batches.
@@ -456,6 +440,9 @@ class DwhRepository:
         total_reviews = len(review_df)
         log.info(f"Processing {total_reviews} reviews...")
 
+        existing_reviews = {str(review.ID_rec) for review in session.query(Review.ID_rec).all()}
+        log.info(f"Loaded {len(existing_reviews)} existing reviews")
+
         reviews_inserted = 0
 
         # Process reviews in batches
@@ -466,18 +453,23 @@ class DwhRepository:
             reviews_to_insert = []
 
             for row in batch_reviews.iter_rows(named=True):
-                reviews_to_insert.append(Review(
-                    ID_rec=row.get('rec_id'),
-                    ID_user=row.get('author_id'),
-                    ID_game=row.get('appid'),
-                    ID_date=row.get('id_date'),
-                    votes_up=row.get('votes_up'),
-                    votes_funny=row.get('votes_funny'),
-                    comment_count=row.get('comment_count'),
-                    review_word_count=row.get('review_word_count'),
-                    sentiment=row.get('sentiment_0_10_round'),
-                    review_text=row.get('review')
-                ))
+                review_id = str(row.get('rec_id'))
+                # Only insert if review doesn't already exist
+                if review_id not in existing_reviews:
+                    reviews_to_insert.append(Review(
+                        ID_rec=review_id,
+                        ID_user=str(row.get('author_id')),
+                        ID_game=str(row.get('appid')),
+                        ID_date=str(row.get('id_date')),
+                        votes_up=row.get('votes_up'),
+                        votes_funny=row.get('votes_funny'),
+                        comment_count=row.get('comment_count'),
+                        review_word_count=row.get('review_word_count'),
+                        sentiment=row.get('sentiment_0_10_round'),
+                        review_text=row.get('review')
+                    ))
+                    # Add to existing_reviews set to avoid re-inserting in next batch
+                    existing_reviews.add(review_id)
 
             if reviews_to_insert:
                 session.bulk_save_objects(reviews_to_insert)

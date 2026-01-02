@@ -4,7 +4,7 @@ import logging as log
 
 
 @task(name="load_data_to_staging_area")
-def load_to_minio(filename, file_path):
+def load_to_minio(filename, file_path, bucket):
     try:
         client = Minio(
             "localhost:9000",
@@ -14,7 +14,7 @@ def load_to_minio(filename, file_path):
         )
 
         # TODO: add a config to give the bucket as a parameter
-        client.fput_object("ingested-files", filename, file_path)
+        client.fput_object(bucket, filename, file_path)
     except Exception as e:
         log.error(f"Upload failed due to: {e}")
 

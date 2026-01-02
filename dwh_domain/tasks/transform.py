@@ -6,6 +6,7 @@ class Transform:
     def __init__(self):
         pass
 
+    @staticmethod
     @task(name="convert_unix_timestamp_to_datetime")
     def unix_timestamp_to_datetime(df: pl.DataFrame, column: str):
         # Convert Unix timestamp to datetime if needed
@@ -17,6 +18,7 @@ class Transform:
             .alias(column)
         ])
 
+    @staticmethod
     @task(name="explode_array_list_column")
     def explode_array_list_column(df: pl.DataFrame, unique_column:str, column_to_explode: str):
         """
