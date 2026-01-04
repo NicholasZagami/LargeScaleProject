@@ -77,6 +77,7 @@ services:
     volumes:
       - cassandra-data:/var/lib/cassandra
       - ./cassandra-data-export:/data-export
+      - ./cassandra-init:/init-scripts
     networks:
       - app-network
     healthcheck:
@@ -85,6 +86,28 @@ services:
       timeout: 20s
       retries: 15
       start_period: 120s
+
+  # Cassandra Initializer - Runs schema and data loading
+  cassandra-init:
+    image: python:3.11-slim
+    container_name: cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra-init:/init-scripts
+      - ./cassandra-data-export:/data-export
+    working_dir: /init-scripts
+    command: >
+      bash -c "
+      apt-get update && apt-get install -y dos2unix &&
+      dos2unix /init-scripts/init.sh &&
+      chmod +x /init-scripts/init.sh &&
+      /init-scripts/init.sh
+      "
+    networks:
+      - app-network
+    restart: "no"
 
   # Cassandra Web - UI per Cassandra
   cassandra-web:
