@@ -8,3 +8,7 @@ pyarrow
 psycopg2
 minio
 streamlit>=1.38.0
+pandas
+sqlalchemy
+psycopg2-binary
+python-dotenv
