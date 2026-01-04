@@ -146,9 +146,9 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
         publisher_bridge_df = pl.read_parquet(game_publisher_downloaded_file_path)
 
         with engine.connect() as conn:
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'genres', 'Genre')
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'categories', 'Category')
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'publishers', 'Publisher')
+            repository.extract_and_update_fixed_item_tables(conn, game_df, 'genres', 'dwh.Genre')
+            repository.extract_and_update_fixed_item_tables(conn, game_df, 'categories', 'dwh.Category')
+            repository.extract_and_update_fixed_item_tables(conn, game_df, 'publishers', 'dwh.Publisher')
             conn.commit()
 
         Session = sessionmaker(bind=engine)

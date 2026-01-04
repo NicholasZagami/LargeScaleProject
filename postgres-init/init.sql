@@ -1,12 +1,13 @@
 -- ============================================
 -- Create DWH Database
 -- ============================================
-
 -- 1) Create schema for the data warehouse
+
+\c prefect;
 CREATE SCHEMA IF NOT EXISTS dwh;
 
 -- Connect to the DWH database
-\c dwh;
+
 -- ============================================
 -- Drop tables if they exist (for clean rebuild)
 -- ============================================
