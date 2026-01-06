@@ -9,7 +9,7 @@ class DateTable(Base):
     __tablename__ = 'date'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_date = Column('id_date', String(255), primary_key=True)
+    ID_date = Column('id_date', String, primary_key=True)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
     day = Column(Integer, nullable=False)
@@ -38,12 +38,12 @@ class Game(Base):
     __tablename__ = 'game'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_game = Column('id_game', String(255), primary_key=True)
-    name = Column(String(255), nullable=False)
+    ID_game = Column('id_game', String, primary_key=True)
+    name = Column(String, nullable=False)
     review_score = Column(Integer)
     required_age = Column(Integer)
     free_to_play = Column(Boolean)
-    release_date = Column(String(255))
+    release_date = Column(String)
 
     # Relationships
     reviews = relationship('Review', back_populates='game')
@@ -56,10 +56,10 @@ class Review(Base):
     __tablename__ = 'review'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_rec = Column('id_rec', String(255), primary_key=True)
-    ID_user = Column('id_usertable', String(255), ForeignKey('dwh.usertable.id_usertable'), nullable=False)
-    ID_game = Column('id_game', String(255), ForeignKey('dwh.game.id_game'), nullable=False)
-    ID_date = Column('id_date', String(255), ForeignKey('dwh.date.id_date'), nullable=False)
+    ID_rec = Column('id_rec', String, primary_key=True)
+    ID_user = Column('id_usertable', String, ForeignKey('dwh.usertable.id_usertable'), nullable=False)
+    ID_game = Column('id_game', String, ForeignKey('dwh.game.id_game'), nullable=False)
+    ID_date = Column('id_date', String, ForeignKey('dwh.date.id_date'), nullable=False)
     votes_up = Column(Integer, default=0)
     votes_funny = Column(Integer, default=0)
     comment_count = Column(Integer, default=0)
@@ -112,7 +112,7 @@ class GenreGame(Base):
     __tablename__ = 'genre_game'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_game = Column('id_game', String(255), ForeignKey('dwh.game.id_game'), primary_key=True)
+    ID_game = Column('id_game', String, ForeignKey('dwh.game.id_game'), primary_key=True)
     ID_genre = Column('id_genre', Integer, ForeignKey('dwh.genre.id_genre'), primary_key=True)
 
 
@@ -120,7 +120,7 @@ class CategoryGame(Base):
     __tablename__ = 'category_game'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_game = Column('id_game', String(255), ForeignKey('dwh.game.id_game'), primary_key=True)
+    ID_game = Column('id_game', String, ForeignKey('dwh.game.id_game'), primary_key=True)
     ID_category = Column('id_category', Integer, ForeignKey('dwh.category.id_category'), primary_key=True)
 
 
@@ -128,5 +128,5 @@ class PublisherGame(Base):
     __tablename__ = 'publisher_game'
     __table_args__ = {'schema': 'dwh'}
 
-    ID_game = Column('id_game', String(255), ForeignKey('dwh.game.id_game'), primary_key=True)
+    ID_game = Column('id_game', String, ForeignKey('dwh.game.id_game'), primary_key=True)
     ID_publisher = Column('id_publisher', Integer, ForeignKey('dwh.publisher.id_publisher'), primary_key=True)

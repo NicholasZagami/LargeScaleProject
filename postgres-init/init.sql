@@ -28,14 +28,14 @@ DROP TABLE IF EXISTS dwh.Publisher CASCADE;
 -- ============================================
 
 CREATE TABLE dwh.Date (
-    ID_date VARCHAR(255) PRIMARY KEY,
+    ID_date TEXT PRIMARY KEY,
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
     day INTEGER NOT NULL
 );
 
 CREATE TABLE dwh.UserTable (
-    ID_UserTable VARCHAR(255) PRIMARY KEY,
+    ID_UserTable TEXT PRIMARY KEY,
     playtime_at_review INTEGER,
     playtime_forever INTEGER,
     review_number INTEGER,
@@ -60,12 +60,12 @@ CREATE TABLE dwh.Publisher (
 );
 
 CREATE TABLE dwh.Game (
-    ID_game VARCHAR(255) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    ID_game TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
     review_score INTEGER,
     required_age INTEGER,
     free_to_play BOOLEAN,
-    release_date VARCHAR(255)
+    release_date TEXT
 );
 
 -- ============================================
@@ -73,10 +73,10 @@ CREATE TABLE dwh.Game (
 -- ============================================
 
 CREATE TABLE dwh.Review (
-    ID_rec VARCHAR(255) PRIMARY KEY,
-    ID_UserTable VARCHAR(255) NOT NULL,
-    ID_game VARCHAR(255) NOT NULL,
-    ID_date VARCHAR(255) NOT NULL,
+    ID_rec TEXT PRIMARY KEY,
+    ID_UserTable TEXT NOT NULL,
+    ID_game TEXT NOT NULL,
+    ID_date TEXT NOT NULL,
     votes_up BIGINT DEFAULT 0,
     votes_funny BIGINT DEFAULT 0,
     comment_count BIGINT DEFAULT 0,
@@ -94,7 +94,7 @@ CREATE TABLE dwh.Review (
 
 -- Game-Genre Bridge Table
 CREATE TABLE dwh.Genre_Game (
-    ID_game VARCHAR(255) NOT NULL,
+    ID_game TEXT NOT NULL,
     ID_genre INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_genre),
     FOREIGN KEY (ID_game) REFERENCES dwh.Game(ID_game) ON DELETE CASCADE,
@@ -103,7 +103,7 @@ CREATE TABLE dwh.Genre_Game (
 
 -- Game-Category Bridge Table
 CREATE TABLE dwh.Category_Game (
-    ID_game VARCHAR(255) NOT NULL,
+    ID_game TEXT NOT NULL,
     ID_category INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_category),
     FOREIGN KEY (ID_game) REFERENCES dwh.Game(ID_game) ON DELETE CASCADE,
@@ -112,7 +112,7 @@ CREATE TABLE dwh.Category_Game (
 
 -- Game-Publisher Bridge Table
 CREATE TABLE dwh.Publisher_Game (
-    ID_game VARCHAR(255) NOT NULL,
+    ID_game TEXT NOT NULL,
     ID_publisher INTEGER NOT NULL,
     PRIMARY KEY (ID_game, ID_publisher),
     FOREIGN KEY (ID_game) REFERENCES dwh.Game(ID_game) ON DELETE CASCADE,

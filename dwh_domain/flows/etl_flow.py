@@ -42,15 +42,15 @@ def extract_data():
 
     try:
         run_id = generate_run_id()
-        mongo_data = extract_from_mongodb(extraction_date='2025-12-29')
-        cassandra_data = extract_from_cassandra(extraction_date='2025-12-30')
+        mongo_data = extract_from_mongodb(extraction_date='2026-01-04')
+        cassandra_data = extract_from_cassandra(extraction_date='2026-01-06')
 
         print(f"Extracted {len(mongo_data)} records from MongoDB.")
         print(f"Extracted {len(cassandra_data)} records from Cassandra.")
 
         # Create file and return the path to find the file
-        mongo_file_path, mongo_filename = write_parquet_file(mongo_data, run_id=run_id, extraction_date='2025-12-29')
-        cassandra_file_path, cassandra_filename = write_parquet_file(cassandra_data, run_id=run_id, extraction_date='2025-12-30')
+        mongo_file_path, mongo_filename = write_parquet_file(mongo_data, run_id=run_id, extraction_date='2026-01-04')
+        cassandra_file_path, cassandra_filename = write_parquet_file(cassandra_data, run_id=run_id, extraction_date='2026-01-06')
 
         # Load the file to MinIO staging area
         load_to_minio(mongo_filename, mongo_file_path, "ingested-files")
@@ -115,11 +115,11 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         game_publishers_df.write_parquet(bridge_publisher_path)
 
         # Load transformed files to MinIO
-        load_to_minio(transformed_game_filename, transformed_game_path, "trasformed-files")
-        load_to_minio(transformed_review_filename, transformed_review_path, "trasformed-files")
-        load_to_minio(bridge_genre_filename, bridge_genre_path, "trasformed-files")
-        load_to_minio(bridge_category_filename, bridge_category_path, "trasformed-files")
-        load_to_minio(bridge_publisher_filename, bridge_publisher_path, "trasformed-files")
+        load_to_minio(transformed_game_filename, transformed_game_path, "transformed-files")
+        load_to_minio(transformed_review_filename, transformed_review_path, "transformed-files")
+        load_to_minio(bridge_genre_filename, bridge_genre_path, "transformed-files")
+        load_to_minio(bridge_category_filename, bridge_category_path, "transformed-files")
+        load_to_minio(bridge_publisher_filename, bridge_publisher_path, "transformed-files")
 
         return transformed_game_filename, transformed_review_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename
     except Exception as e:
@@ -134,11 +134,11 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
     engine = create_engine(config.POSTGRES_CONNECTION_STRING)
 
     try:
-        game_downloaded_file_path = extract_from_minio("trasformed-files", transformed_game_filename)
-        review_downloaded_file_path = extract_from_minio("trasformed-files", transformed_review_filename)
-        game_genre_downloaded_file_path = extract_from_minio("trasformed-files", bridge_genre_filename)
-        game_category_downloaded_file_path = extract_from_minio("trasformed-files", bridge_category_filename)
-        game_publisher_downloaded_file_path = extract_from_minio("trasformed-files", bridge_publisher_filename)
+        game_downloaded_file_path = extract_from_minio("transformed-files", transformed_game_filename)
+        review_downloaded_file_path = extract_from_minio("transformed-files", transformed_review_filename)
+        game_genre_downloaded_file_path = extract_from_minio("transformed-files", bridge_genre_filename)
+        game_category_downloaded_file_path = extract_from_minio("transformed-files", bridge_category_filename)
+        game_publisher_downloaded_file_path = extract_from_minio("transformed-files", bridge_publisher_filename)
         game_df = pl.read_parquet(game_downloaded_file_path)
         review_df = pl.read_parquet(review_downloaded_file_path)
         genre_bridge_df = pl.read_parquet(game_genre_downloaded_file_path)
@@ -154,10 +154,11 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
         Session = sessionmaker(bind=engine)
         session = Session()
         try:
-            repository.bulk_insert_games_and_bridge(session, game_df, genre_bridge_df, category_bridge_df, publisher_bridge_df)
-            repository.bulk_insert_user_table(session, review_df)
-            review_df_updated = repository.bulk_insert_date_table(session, review_df)
-            repository.bulk_insert_review(session, review_df_updated)
+            batch_size = 30000 #parametro configurabile
+            repository.bulk_insert_games_and_bridge(session, game_df, genre_bridge_df, category_bridge_df, publisher_bridge_df, batch_size)
+            repository.bulk_insert_user_table(session, review_df, batch_size)
+            review_df_updated = repository.bulk_insert_date_table(session, review_df, batch_size)
+            repository.bulk_insert_review(session, review_df_updated, batch_size)
         finally:
             session.close()
     except Exception as e:

@@ -18,15 +18,18 @@ class DwhRepository:
         unique_values = df[df_column].explode().drop_nulls().unique().to_list()
 
         for value in unique_values:
+            # Strip whitespace from the value
+            value_stripped = value.strip() if isinstance(value, str) else value
+
             result = conn.execute(
                 text(f"SELECT COUNT(*) FROM {table_name} WHERE name = :value"),
-                {"value": value}
+                {"value": value_stripped}
             )
 
             if result.scalar() == 0:
                 conn.execute(
                     text(f"INSERT INTO {table_name} (name) VALUES (:value)"),
-                    {"value": value}
+                    {"value": value_stripped}
                 )
 
         print(f"Updated table '{table_name}' with unique values from column '{df_column}'.")
@@ -144,7 +147,7 @@ class DwhRepository:
 
                 for row in batch_genres.iter_rows(named=True):
                     game_id = str(row['appid'])
-                    genre_name = row['genres']
+                    genre_name = row['genres'].strip() if isinstance(row['genres'], str) else row['genres']
 
                     # Use in-memory lookup instead of DB query
                     genre_id = genre_lookup.get(genre_name)
@@ -179,7 +182,7 @@ class DwhRepository:
 
                 for row in batch_categories.iter_rows(named=True):
                     game_id = str(row['appid'])
-                    category_name = row['categories']
+                    category_name = row['categories'].strip() if isinstance(row['categories'], str) else row['categories']
 
                     # Use in-memory lookup instead of DB query
                     category_id = category_lookup.get(category_name)
@@ -214,7 +217,7 @@ class DwhRepository:
 
                 for row in batch_publishers.iter_rows(named=True):
                     game_id = str(row['appid'])
-                    publisher_name = row['publishers']
+                    publisher_name = row['publishers'].strip() if isinstance(row['publishers'], str) else row['publishers']
 
                     # Use in-memory lookup instead of DB query
                     publisher_id = publisher_lookup.get(publisher_name)
