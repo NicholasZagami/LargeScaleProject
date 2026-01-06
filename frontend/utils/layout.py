@@ -73,19 +73,11 @@ def render_header():
 
 
 def render_sidebar():
-    """Sidebar minimale: solo navigazione + un piccolo box info."""
     with st.sidebar:
-        st.markdown("### Navigazione")
-        st.markdown("🏠 Home")
-        st.markdown("🎮 Giochi")
-        st.markdown("💬 Recensioni")
-
-        st.markdown("---")
+        st.markdown("### Info")
         st.caption(
             "Dashboard progettata per l'esame di\n"
-            "**Large Scale Data Management**.\n\n"
-            "I filtri globali e le altre pagine\n"
-            "verranno aggiunti nelle prossime iterazioni."
+            "**Large Scale Data Management**."
         )
 
 
