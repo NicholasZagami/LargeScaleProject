@@ -418,7 +418,7 @@ def get_game_daily_trend(game_id: int, date_from=None, date_to=None):
     if not (_table_exists(DWH_SCHEMA, "review") and _table_exists(DWH_SCHEMA, "date")):
         return _empty_df()
 
-    params = {"gid": int(game_id)}
+    params = {"gid": game_id}
     where_date = ""
     if date_from is not None:
         where_date += " AND make_date(d.year, d.month, d.day) >= :date_from"
@@ -434,7 +434,7 @@ def get_game_daily_trend(game_id: int, date_from=None, date_to=None):
       AVG(r.sentiment_round)::numeric(10,2) AS avg_sentiment
     FROM "{DWH_SCHEMA}"."review" r
     JOIN "{DWH_SCHEMA}"."date" d ON d.id_date = r.id_date
-    WHERE r.id_game = :gid
+    WHERE r.id_game = CAST(:gid AS TEXT)
       {where_date}
     GROUP BY 1
     ORDER BY 1
