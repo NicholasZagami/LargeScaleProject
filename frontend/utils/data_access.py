@@ -657,10 +657,13 @@ def get_releases_over_time(freq: str = "month"):
     return query_df(
         f"""
         SELECT
-          date_trunc('{trunc}', release_date)::date AS period,
+          date_trunc('{trunc}', TO_DATE(release_date, 'DD Mon, YYYY'))::date AS period,
           COUNT(*) AS games
         FROM "{DWH_SCHEMA}"."game"
         WHERE release_date IS NOT NULL
+          AND release_date NOT ILIKE '%coming soon%'
+          AND release_date NOT ILIKE '%to be announced%'
+          AND release_date ~ '^[0-9]{{1,2}} [A-Za-z]{{3}}, [0-9]{{4}}$'
         GROUP BY 1
         ORDER BY 1
         """
@@ -902,7 +905,7 @@ def get_genre_engagement(limit: int = 15):
         f"""
         WITH reviews_by_game AS (
           SELECT
-            CAST(r.id_game AS bigint) AS id_game,
+            r.id_game,
             COUNT(*) AS reviews
           FROM "{DWH_SCHEMA}"."review" r
           WHERE r.id_game IS NOT NULL
@@ -949,7 +952,7 @@ def get_publisher_quality_quantity(limit: int = 200):
         f"""
         WITH reviews_by_game AS (
           SELECT
-            CAST(r.id_game AS bigint) AS id_game,
+            r.id_game,
             COUNT(*) AS reviews
           FROM "{DWH_SCHEMA}"."review" r
           WHERE r.id_game IS NOT NULL
@@ -1027,7 +1030,7 @@ def get_sentiment_vs_rating_per_game(limit: int = 20000):
           COUNT(*) AS reviews
         FROM "{DWH_SCHEMA}"."review" r
         JOIN "{DWH_SCHEMA}"."game" g
-          ON CAST(r.id_game AS bigint) = g.id_game
+          ON r.id_game = g.id_game
         GROUP BY g.id_game, g.review_score
         HAVING COUNT(*) >= 5
         ORDER BY reviews DESC
@@ -1056,7 +1059,7 @@ def get_sentiment_by_genre(limit: int = 15):
           AVG(r.sentiment_round)::numeric(10,2) AS avg_sentiment
         FROM "{DWH_SCHEMA}"."review" r
         JOIN "{DWH_SCHEMA}"."game" g
-          ON CAST(r.id_game AS bigint) = g.id_game
+          ON r.id_game = g.id_game
         JOIN "{DWH_SCHEMA}"."genre_game" gg ON gg.id_game = g.id_game
         JOIN "{DWH_SCHEMA}"."genre" ge ON ge.id_genre = gg.id_genre
         GROUP BY ge.name
