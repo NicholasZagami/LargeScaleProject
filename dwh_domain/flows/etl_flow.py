@@ -23,10 +23,10 @@ def etl_pipeline():
     mongo_filename, mongo_file_path, cassandra_filename, cassandra_file_path = extract_data()
 
     # Transformation phase
-    transformed_game_filename, transformed_review_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(mongo_filename, cassandra_filename)
+    transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(mongo_filename, cassandra_filename)
 
     # Load phase
-    load_data(transformed_game_filename, transformed_review_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
+    load_data(transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
 
     # Clean up temporary file after the successful load
     #os.remove(mongo_file_path)
@@ -80,21 +80,24 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         log.info(f"Loaded review DataFrame with {len(review_df)} rows and {len(review_df.columns)} columns")
 
         # Apply transformations
-        review_final = transform.unix_timestamp_to_datetime(review_df, 'last_played')
-        game_genre_df = transform.explode_array_list_column(game_df, 'appid', 'genres')
-        game_categories_df = transform.explode_array_list_column(game_df, 'appid', 'categories')
-        game_publishers_df = transform.explode_array_list_column(game_df, 'appid', 'publishers')
+        review_df = transform.unix_timestamp_to_datetime(review_df, 'last_played')
+        date_df, review_final = transform.extract_unique_dates_df_from_review_df(review_df)
+        filtered_game_df = transform.filter_unique_games(game_df)
+        game_genre_df = transform.explode_array_list_column(filtered_game_df, 'appid', 'genres')
+        game_categories_df = transform.explode_array_list_column(filtered_game_df, 'appid', 'categories')
+        game_publishers_df = transform.explode_array_list_column(filtered_game_df, 'appid', 'publishers')
 
         log.info(f"Transformed game DataFrame: {len(game_df)} rows")
         log.info(f"Transformed review DataFrame: {len(review_final)} rows")
+        log.info(f"Date DataFrame: {len(date_df)} rows")
         log.info(f"Bridge dataframe (Game-Genre): {len(game_genre_df)} rows")
         log.info(f"Bridge dataframe (Game-Category): {len(game_categories_df)} rows")
         log.info(f"Bridge dataframe (Game-Publisher): {len(game_publishers_df)} rows")
 
         # Write transformed data to new parquet files
-        # Option 1: Generate new filenames with "transformed_" prefix
         transformed_game_filename = f"final_{mongo_filename}"
         transformed_review_filename = f"final_{cassandra_filename}"
+        transformed_date_filename = f"final_date_{cassandra_filename}"
         bridge_genre_filename = f"bridge_genre_{mongo_filename}"
         bridge_category_filename = f"bridge_category_{mongo_filename}"
         bridge_publisher_filename = f"bridge_publisher_{mongo_filename}"
@@ -103,13 +106,15 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         os.makedirs("tmp/transformed", exist_ok=True)
         transformed_game_path = f"tmp/transformed/{transformed_game_filename}"
         transformed_review_path = f"tmp/transformed/{transformed_review_filename}"
+        transformed_date_path = f"tmp/transformed/{transformed_date_filename}"
         bridge_genre_path = f"tmp/transformed/{bridge_genre_filename}"
         bridge_category_path = f"tmp/transformed/{bridge_category_filename}"
         bridge_publisher_path = f"tmp/transformed/{bridge_publisher_filename}"
 
         # Save transformed DataFrames
-        game_df.write_parquet(transformed_game_path)
+        filtered_game_df.write_parquet(transformed_game_path)
         review_final.write_parquet(transformed_review_path)
+        date_df.write_parquet(transformed_date_path)
         game_genre_df.write_parquet(bridge_genre_path)
         game_categories_df.write_parquet(bridge_category_path)
         game_publishers_df.write_parquet(bridge_publisher_path)
@@ -117,18 +122,19 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         # Load transformed files to MinIO
         load_to_minio(transformed_game_filename, transformed_game_path, "transformed-files")
         load_to_minio(transformed_review_filename, transformed_review_path, "transformed-files")
+        load_to_minio(transformed_date_filename, transformed_date_path, "transformed-files")
         load_to_minio(bridge_genre_filename, bridge_genre_path, "transformed-files")
         load_to_minio(bridge_category_filename, bridge_category_path, "transformed-files")
         load_to_minio(bridge_publisher_filename, bridge_publisher_path, "transformed-files")
 
-        return transformed_game_filename, transformed_review_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename
+        return transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename
     except Exception as e:
         log.error(f"Error while transforming data due to: {e}")
     finally:
         log.info("Data transform phase completed...")
 
 @flow(name="load_data")
-def load_data(transformed_game_filename: str, transformed_review_filename: str, bridge_genre_filename: str, bridge_category_filename: str, bridge_publisher_filename: str):
+def load_data(transformed_game_filename: str, transformed_review_filename: str, transformed_date_filename:str, bridge_genre_filename: str, bridge_category_filename: str, bridge_publisher_filename: str):
     log.info("Load phase started...")
     repository = DwhRepository()
     engine = create_engine(config.POSTGRES_CONNECTION_STRING)
@@ -136,11 +142,13 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
     try:
         game_downloaded_file_path = extract_from_minio("transformed-files", transformed_game_filename)
         review_downloaded_file_path = extract_from_minio("transformed-files", transformed_review_filename)
+        date_downloaded_file_path = extract_from_minio("transformed-files", transformed_date_filename)
         game_genre_downloaded_file_path = extract_from_minio("transformed-files", bridge_genre_filename)
         game_category_downloaded_file_path = extract_from_minio("transformed-files", bridge_category_filename)
         game_publisher_downloaded_file_path = extract_from_minio("transformed-files", bridge_publisher_filename)
         game_df = pl.read_parquet(game_downloaded_file_path)
         review_df = pl.read_parquet(review_downloaded_file_path)
+        date_df = pl.read_parquet(date_downloaded_file_path)
         genre_bridge_df = pl.read_parquet(game_genre_downloaded_file_path)
         category_bridge_df = pl.read_parquet(game_category_downloaded_file_path)
         publisher_bridge_df = pl.read_parquet(game_publisher_downloaded_file_path)
@@ -157,8 +165,8 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
             batch_size = 30000 #parametro configurabile
             repository.bulk_insert_games_and_bridge(session, game_df, genre_bridge_df, category_bridge_df, publisher_bridge_df, batch_size)
             repository.bulk_insert_user_table(session, review_df, batch_size)
-            review_df_updated = repository.bulk_insert_date_table(session, review_df, batch_size)
-            repository.bulk_insert_review(session, review_df_updated, batch_size)
+            repository.bulk_insert_date_table(session, date_df, batch_size)
+            repository.bulk_insert_review(session, review_df, batch_size)
         finally:
             session.close()
     except Exception as e:

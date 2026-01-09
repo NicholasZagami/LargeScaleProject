@@ -95,14 +95,8 @@ class DwhRepository:
         if 'release_date' in game_df.columns:
             game_columns.append('release_date')
 
-        unique_games = game_df.select(game_columns).unique(subset=['name'], keep='first')
+        unique_games = game_df.select(game_columns).unique()
         total_games = len(unique_games)
-
-        # Filter bridge DataFrames to only include appids from deduplicated games
-        valid_appids = unique_games['appid'].cast(pl.Utf8)
-        genre_game_df = genre_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
-        category_game_df = category_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
-        publisher_game_df = publisher_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
 
         log.info(f"Processing {total_games} unique games...")
         games_inserted = 0
@@ -249,7 +243,7 @@ class DwhRepository:
         print("✅ All games and bridge tables populated successfully!")
 
     @staticmethod
-    def bulk_insert_date_table(session, review_df: pl.DataFrame, batch_size: int = 10000):
+    def bulk_insert_date_table(session, date_df: pl.DataFrame, batch_size: int = 10000):
 
         log.info(f"Bulk inserting dates in batches of {batch_size}...")
 
@@ -257,40 +251,8 @@ class DwhRepository:
         existing_dates = {date.ID_date for date in session.query(DateTable.ID_date).all()}
         log.info(f"Loaded {len(existing_dates)} existing dates")
 
-        # Extract unique dates from review_df
-        unique_dates = (
-            review_df
-            .select('updated_at')
-            .unique()
-            .drop_nulls()
-        )
-
-        # Parse dates and extract year, month, day components
-        # Check if updated_at is already datetime or needs parsing
-        if unique_dates.schema['updated_at'] == pl.Datetime:
-            # Already datetime, use directly
-            unique_dates = unique_dates.with_columns([
-                pl.col('updated_at').alias('date_parsed')
-            ])
-        else:
-            # String, needs parsing
-            unique_dates = unique_dates.with_columns([
-                pl.col('updated_at').str.to_datetime().alias('date_parsed')
-            ])
-
-        unique_dates = unique_dates.with_columns([
-            pl.col('date_parsed').dt.year().alias('year'),
-            pl.col('date_parsed').dt.month().alias('month'),
-            pl.col('date_parsed').dt.day().alias('day')
-        ]).with_columns([
-            # Create ID_date as string: year + month (2 digits) + day (2 digits)
-            (pl.col('year').cast(pl.Utf8) +
-            pl.col('month').cast(pl.Utf8).str.zfill(2) +
-            pl.col('day').cast(pl.Utf8).str.zfill(2)).alias('ID_date')
-        ])
-
         # Get unique date combinations (in case multiple timestamps map to same date)
-        unique_dates = unique_dates.select(['ID_date', 'year', 'month', 'day']).unique()
+        unique_dates = date_df.select(['date_id', 'year', 'month', 'day']).unique()
 
         total_dates = len(unique_dates)
         log.info(f"Processing {total_dates} unique dates...")
@@ -305,7 +267,7 @@ class DwhRepository:
             dates_to_insert = []
 
             for row in batch_dates.iter_rows(named=True):
-                date_id = row['ID_date']
+                date_id = row['date_id']
 
                 # Only insert if date doesn't already exist
                 if date_id not in existing_dates:
@@ -327,28 +289,6 @@ class DwhRepository:
 
         session.commit()
         print(f"✅ Total dates inserted: {dates_inserted}")
-
-        # Add id_date column to review_df
-        if review_df.schema['updated_at'] == pl.Datetime:
-            review_df = review_df.with_columns([
-                pl.col('updated_at').alias('date_parsed')
-            ])
-        else:
-            review_df = review_df.with_columns([
-                pl.col('updated_at').str.to_datetime().alias('date_parsed')
-            ])
-
-        review_df = review_df.with_columns([
-            pl.col('date_parsed').dt.year().alias('year_temp'),
-            pl.col('date_parsed').dt.month().alias('month_temp'),
-            pl.col('date_parsed').dt.day().alias('day_temp')
-        ]).with_columns([
-            (pl.col('year_temp').cast(pl.Utf8) +
-            pl.col('month_temp').cast(pl.Utf8).str.zfill(2) +
-            pl.col('day_temp').cast(pl.Utf8).str.zfill(2)).alias('id_date')
-        ]).drop(['date_parsed', 'year_temp', 'month_temp', 'day_temp'])
-
-        return review_df
 
     @staticmethod
     def bulk_insert_user_table(session, review_df: pl.DataFrame, batch_size: int = 10000):
@@ -469,7 +409,7 @@ class DwhRepository:
                         ID_rec=review_id,
                         ID_user=str(row.get('author_id')),
                         ID_game=str(row.get('appid')),
-                        ID_date=str(row.get('id_date')),
+                        ID_date=str(row.get('date_id')),
                         votes_up=row.get('votes_up'),
                         votes_funny=row.get('votes_funny'),
                         comment_count=row.get('comment_count'),
