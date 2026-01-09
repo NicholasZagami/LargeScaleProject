@@ -95,8 +95,14 @@ class DwhRepository:
         if 'release_date' in game_df.columns:
             game_columns.append('release_date')
 
-        unique_games = game_df.select(game_columns).unique()
+        unique_games = game_df.select(game_columns).unique(subset=['name'], keep='first')
         total_games = len(unique_games)
+
+        # Filter bridge DataFrames to only include appids from deduplicated games
+        valid_appids = unique_games['appid'].cast(pl.Utf8)
+        genre_game_df = genre_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
+        category_game_df = category_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
+        publisher_game_df = publisher_game_df.filter(pl.col('appid').cast(pl.Utf8).is_in(valid_appids))
 
         log.info(f"Processing {total_games} unique games...")
         games_inserted = 0
