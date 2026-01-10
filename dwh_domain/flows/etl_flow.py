@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 import config
 from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio)
 from dwh_domain.utils.file_writer import write_parquet_file, generate_run_id
+from dwh_domain.utils.schemas import MONGO_GAME_SCHEMA, CASSANDRA_REVIEW_SCHEMA
 from dwh_domain.tasks.load import load_to_minio
 from dwh_domain.tasks.transform import Transform
 from dwh_domain.service.db_service import DwhRepository
@@ -23,18 +24,34 @@ def etl_pipeline():
     mongo_filename, mongo_file_path, cassandra_filename, cassandra_file_path = extract_data()
 
     # Transformation phase
-    transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(mongo_filename, cassandra_filename)
+    file_path_to_remove, transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(mongo_filename, cassandra_filename)
 
     # Load phase
     load_data(transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
 
-    # Clean up temporary file after the successful load
-    #os.remove(mongo_file_path)
-    #os.remove(mongo_file_path)
-    #os.rmdir(os.path.dirname(cassandra_file_path))
-    #os.rmdir(os.path.dirname(cassandra_file_path))
-
     log.info("ETL pipeline completed.")
+
+    log.info("Cleaning up temporary files...")
+
+    file_path_to_remove.append(mongo_file_path)
+    file_path_to_remove.append(cassandra_file_path)
+
+    for file in file_path_to_remove:
+        if os.path.exists(file):
+            os.remove(file)
+
+    log.info(f"{len(file_path_to_remove)} files removed.")
+
+    extracted_dir = os.path.dirname(mongo_file_path)
+    transformed_dir = os.path.dirname(file_path_to_remove[0])
+    if os.path.exists(transformed_dir) and not os.listdir(transformed_dir):
+        os.rmdir(transformed_dir)
+
+    if os.path.exists(extracted_dir) and not os.listdir(extracted_dir):
+        os.rmdir(extracted_dir)
+
+    log.info(f"{extracted_dir} and {transformed_dir} path deleted.")
+
 
 @flow(name="extract_data")
 def extract_data():
@@ -42,15 +59,26 @@ def extract_data():
 
     try:
         run_id = generate_run_id()
-        mongo_data = extract_from_mongodb(extraction_date='2026-01-04')
+        mongo_data = extract_from_mongodb(extraction_date='2026-01-01')
         cassandra_data = extract_from_cassandra(extraction_date='2026-01-06')
 
         print(f"Extracted {len(mongo_data)} records from MongoDB.")
         print(f"Extracted {len(cassandra_data)} records from Cassandra.")
 
         # Create file and return the path to find the file
-        mongo_file_path, mongo_filename = write_parquet_file(mongo_data, run_id=run_id, extraction_date='2026-01-04')
-        cassandra_file_path, cassandra_filename = write_parquet_file(cassandra_data, run_id=run_id, extraction_date='2026-01-06')
+        # Pass schema to handle empty data gracefully
+        mongo_file_path, mongo_filename = write_parquet_file(
+            mongo_data,
+            run_id=run_id,
+            extraction_date='2026-01-01',
+            schema=MONGO_GAME_SCHEMA if not mongo_data else None
+        )
+        cassandra_file_path, cassandra_filename = write_parquet_file(
+            cassandra_data,
+            run_id=run_id,
+            extraction_date='2026-01-06',
+            schema=CASSANDRA_REVIEW_SCHEMA if not cassandra_data else None
+        )
 
         # Load the file to MinIO staging area
         load_to_minio(mongo_filename, mongo_file_path, "ingested-files")
@@ -95,8 +123,8 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         log.info(f"Bridge dataframe (Game-Publisher): {len(game_publishers_df)} rows")
 
         # Write transformed data to new parquet files
-        transformed_game_filename = f"final_{mongo_filename}"
-        transformed_review_filename = f"final_{cassandra_filename}"
+        transformed_game_filename = f"final_game_{mongo_filename}"
+        transformed_review_filename = f"final_review_{cassandra_filename}"
         transformed_date_filename = f"final_date_{cassandra_filename}"
         bridge_genre_filename = f"bridge_genre_{mongo_filename}"
         bridge_category_filename = f"bridge_category_{mongo_filename}"
@@ -110,6 +138,8 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         bridge_genre_path = f"tmp/transformed/{bridge_genre_filename}"
         bridge_category_path = f"tmp/transformed/{bridge_category_filename}"
         bridge_publisher_path = f"tmp/transformed/{bridge_publisher_filename}"
+
+        file_path_to_remove = [transformed_game_path, transformed_review_path, transformed_date_path, bridge_genre_path, bridge_category_path, bridge_publisher_path]
 
         # Save transformed DataFrames
         filtered_game_df.write_parquet(transformed_game_path)
@@ -127,7 +157,7 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
         load_to_minio(bridge_category_filename, bridge_category_path, "transformed-files")
         load_to_minio(bridge_publisher_filename, bridge_publisher_path, "transformed-files")
 
-        return transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename
+        return file_path_to_remove, transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename
     except Exception as e:
         log.error(f"Error while transforming data due to: {e}")
     finally:
@@ -153,15 +183,14 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
         category_bridge_df = pl.read_parquet(game_category_downloaded_file_path)
         publisher_bridge_df = pl.read_parquet(game_publisher_downloaded_file_path)
 
-        with engine.connect() as conn:
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'genres', 'dwh.Genre')
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'categories', 'dwh.Category')
-            repository.extract_and_update_fixed_item_tables(conn, game_df, 'publishers', 'dwh.Publisher')
-            conn.commit()
-
         Session = sessionmaker(bind=engine)
         session = Session()
         try:
+            repository.extract_and_update_fixed_item_tables(session, game_df, 'genres', 'dwh.Genre')
+            repository.extract_and_update_fixed_item_tables(session, game_df, 'categories', 'dwh.Category')
+            repository.extract_and_update_fixed_item_tables(session, game_df, 'publishers', 'dwh.Publisher')
+            session.commit()
+
             batch_size = 30000 #parametro configurabile
             repository.bulk_insert_games_and_bridge(session, game_df, genre_bridge_df, category_bridge_df, publisher_bridge_df, batch_size)
             repository.bulk_insert_user_table(session, review_df, batch_size)

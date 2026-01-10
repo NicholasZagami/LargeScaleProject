@@ -302,7 +302,7 @@ class DwhRepository:
         """
         log.info(f"Bulk inserting users in batches of {batch_size}...")
 
-        user_columns = ['author_id']  # Always include author_id
+        user_columns = ['author_id']
         if 'playtime_at_review' in review_df.columns:
             user_columns.append('playtime_at_review')
         if 'playtime_forever' in review_df.columns:
@@ -314,12 +314,6 @@ class DwhRepository:
         if 'last_played' in review_df.columns:
             user_columns.append('last_played')
 
-        if len(user_columns) == 1:  # Only author_id, no additional user data
-            print("⚠️ No additional user columns found in review_df. Skipping user insertion.")
-            user_id_map = {}
-        else:
-            log.info("Pre-loading existing users...")
-
             # Load existing users to check for duplicates (convert to string for consistent comparison)
             existing_users = {str(user.ID_user) for user in session.query(User.ID_user).all()}
             log.info(f"Loaded {len(existing_users)} existing users")
@@ -330,7 +324,6 @@ class DwhRepository:
 
             log.info(f"Processing {total_users} unique users...")
             users_inserted = 0
-            user_id_map = {}  # Map user attributes to user ID
 
             for batch_start in range(0, total_users, batch_size):
                 batch_end = min(batch_start + batch_size, total_users)
@@ -340,13 +333,6 @@ class DwhRepository:
 
                 for row in batch_users.iter_rows(named=True):
                     user_id = str(row.get('author_id'))  # Convert to string for consistency
-                    # Create a unique key for the user
-                    user_key = (
-                        row.get('playtime_at_review'),
-                        row.get('playtime_forever'),
-                        row.get('num_reviews'),
-                        row.get('language')
-                    )
 
                     # Only insert if the user doesn't already exist
                     if user_id not in existing_users:
@@ -361,8 +347,6 @@ class DwhRepository:
                         ))
                         # Add to existing_users set to avoid re-inserting in next batch
                         existing_users.add(user_id)
-
-                    user_id_map[user_key] = user_id
 
                 if users_to_insert:
                     session.bulk_save_objects(users_to_insert)

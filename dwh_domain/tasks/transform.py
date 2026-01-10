@@ -9,6 +9,10 @@ class Transform:
     @staticmethod
     @task(name="convert_unix_timestamp_to_datetime")
     def unix_timestamp_to_datetime(df: pl.DataFrame, column: str):
+        # Return empty dataframe if empty
+        if df.is_empty():
+            return df
+
         # Convert Unix timestamp to datetime if needed
         return df.with_columns([
             # TODO: capire se serve, se no togliere
@@ -32,6 +36,9 @@ class Transform:
             column_to_explode: column to explode
         """
 
+        if df.is_empty():
+            return df.select([unique_column, column_to_explode])
+
         return (df.select([unique_column, column_to_explode])
                 .explode(column_to_explode)
                 .drop_nulls())
@@ -42,9 +49,10 @@ class Transform:
         """
         For unique appids the data provide the same game sometimes.
         :param df: dataframe
-        :param subset_column: column used to filter the unique games
         :return: filtered dataframe
         """
+        if df.is_empty():
+            return df
         return df.select(df.columns).unique(subset=['name'], keep='first')
 
     @staticmethod
@@ -67,6 +75,12 @@ class Transform:
     @staticmethod
     @task(name="extract_unique_dates_df_from_review_df")
     def extract_unique_dates_df_from_review_df(review_df: pl.DataFrame):
+        if review_df.is_empty():
+            # Return empty DataFrames with correct schema
+            empty_dates_df = pl.DataFrame(schema={'date_id': pl.String, 'year': pl.Int32, 'month': pl.Int8, 'day': pl.Int8})
+            empty_review_df = review_df.with_columns(pl.lit(None).alias('date_id').cast(pl.String)).drop('updated_at', strict=False)
+            return empty_dates_df, empty_review_df
+
         # Extract unique dates with year, month, day components and ID
         unique_dates_df = (
             review_df
@@ -87,7 +101,6 @@ class Transform:
         review_df = (
             review_df
             .with_columns(Transform._create_date_id('updated_at').alias('date_id'))
-            .drop('updated_at')
         )
 
         return unique_dates_df, review_df
