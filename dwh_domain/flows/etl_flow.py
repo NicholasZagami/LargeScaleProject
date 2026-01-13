@@ -1,13 +1,15 @@
 import os
 import polars as pl
 import logging as log
+from datetime import datetime, timedelta
+from typing import Optional
 
 from prefect import flow
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import config
-from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio)
+from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio, update_cassandra_reviews_date)
 from dwh_domain.utils.file_writer import write_parquet_file, generate_run_id
 from dwh_domain.utils.schemas import MONGO_GAME_SCHEMA, CASSANDRA_REVIEW_SCHEMA
 from dwh_domain.tasks.load import load_to_minio
@@ -17,50 +19,79 @@ from dwh_domain.service.db_service import DwhRepository
 log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
 @flow(name="etl_pipeline")
-def etl_pipeline():
-    log.info("ETL pipeline started...")
+def etl_pipeline(extraction_date: Optional[str] = None):
+    """
+    Main ETL pipeline flow.
 
-    # Extraction phase
-    mongo_filename, mongo_file_path, cassandra_filename, cassandra_file_path = extract_data()
+    Args:
+        extraction_date: Date to extract data (format: YYYY-MM-DD).
+                        If None, uses current date.
+    """
+    # Default to current date if not provided
+    if extraction_date is None:
+        extraction_date = datetime.now().strftime('%Y-%m-%d')
 
-    # Transformation phase
-    file_path_to_remove, transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(mongo_filename, cassandra_filename)
+    log.info(f"ETL pipeline started with extraction date: {extraction_date}")
 
-    # Load phase
-    load_data(transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
+    try:
+        # Extraction phase
+        mongo_filename, mongo_file_path, cassandra_filename, cassandra_file_path = extract_data(extraction_date)
 
-    log.info("ETL pipeline completed.")
+        # Transformation phase
+        file_path_to_remove, transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename = transform_data(
+            mongo_filename, cassandra_filename)
 
-    log.info("Cleaning up temporary files...")
+        # Load phase with retry handling
+        load_data(transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
 
-    file_path_to_remove.append(mongo_file_path)
-    file_path_to_remove.append(cassandra_file_path)
+        log.info("ETL pipeline completed successfully.")
 
-    for file in file_path_to_remove:
-        if os.path.exists(file):
-            os.remove(file)
+        log.info("Cleaning up temporary files...")
 
-    log.info(f"{len(file_path_to_remove)} files removed.")
+        file_path_to_remove.append(mongo_file_path)
+        file_path_to_remove.append(cassandra_file_path)
 
-    extracted_dir = os.path.dirname(mongo_file_path)
-    transformed_dir = os.path.dirname(file_path_to_remove[0])
-    if os.path.exists(transformed_dir) and not os.listdir(transformed_dir):
-        os.rmdir(transformed_dir)
+        for file in file_path_to_remove:
+            if os.path.exists(file):
+                os.remove(file)
 
-    if os.path.exists(extracted_dir) and not os.listdir(extracted_dir):
-        os.rmdir(extracted_dir)
+        log.info(f"{len(file_path_to_remove)} files removed.")
 
-    log.info(f"{extracted_dir} and {transformed_dir} path deleted.")
+        extracted_dir = os.path.dirname(mongo_file_path)
+        transformed_dir = os.path.dirname(file_path_to_remove[0])
+        if os.path.exists(transformed_dir) and not os.listdir(transformed_dir):
+            os.rmdir(transformed_dir)
 
+        if os.path.exists(extracted_dir) and not os.listdir(extracted_dir):
+            os.rmdir(extracted_dir)
 
-@flow(name="extract_data")
-def extract_data():
-    log.info("Extraction phase started...")
+        log.info(f"{extracted_dir} and {transformed_dir} path deleted.")
+
+    except Exception as e:
+        # If all retries failed, postpone review processing
+        log.warning(f"All retries exhausted. Error: {e}")
+        log.warning("Postponing review processing by updating Cassandra updated_at field...")
+
+        try:
+            # Read the review dataframe to get the review IDs that failed
+            review_downloaded_file_path = extract_from_minio("transformed-files", transformed_review_filename)
+            review_df = pl.read_parquet(review_downloaded_file_path)
+
+            # Update the updated_at field in Cassandra for these reviews
+            update_cassandra_reviews_date(review_df, days_to_add=1)
+            log.info("Reviews postponed by 1 day in Cassandra. They will be processed in the next run.")
+        except Exception as postpone_error:
+            log.error(f"Failed to postpone reviews: {postpone_error}")
+            raise e  # Re-raise the original error
+
+@flow(name="extract_data", retries=3, retry_delay_seconds=5)
+def extract_data(extraction_date: str):
+    log.info(f"Extraction phase started for date: {extraction_date}")
 
     try:
         run_id = generate_run_id()
-        mongo_data = extract_from_mongodb(extraction_date='2026-01-01')
-        cassandra_data = extract_from_cassandra(extraction_date='2026-01-06')
+        mongo_data = extract_from_mongodb(extraction_date=extraction_date)
+        cassandra_data = extract_from_cassandra(extraction_date=extraction_date)
 
         print(f"Extracted {len(mongo_data)} records from MongoDB.")
         print(f"Extracted {len(cassandra_data)} records from Cassandra.")
@@ -70,13 +101,13 @@ def extract_data():
         mongo_file_path, mongo_filename = write_parquet_file(
             mongo_data,
             run_id=run_id,
-            extraction_date='2026-01-01',
+            extraction_date=extraction_date,
             schema=MONGO_GAME_SCHEMA if not mongo_data else None
         )
         cassandra_file_path, cassandra_filename = write_parquet_file(
             cassandra_data,
             run_id=run_id,
-            extraction_date='2026-01-06',
+            extraction_date=extraction_date,
             schema=CASSANDRA_REVIEW_SCHEMA if not cassandra_data else None
         )
 
@@ -92,7 +123,7 @@ def extract_data():
         log.info("Extraction phase completed...")
 
 
-@flow(name="transform_data")
+@flow(name="transform_data", retries=3, retry_delay_seconds=5)
 def transform_data(mongo_filename: str, cassandra_filename: str):
     log.info("Transform phase started...")
     transform = Transform()
@@ -163,7 +194,7 @@ def transform_data(mongo_filename: str, cassandra_filename: str):
     finally:
         log.info("Data transform phase completed...")
 
-@flow(name="load_data")
+@flow(name="load_data", retries=3, retry_delay_seconds=5)
 def load_data(transformed_game_filename: str, transformed_review_filename: str, transformed_date_filename:str, bridge_genre_filename: str, bridge_category_filename: str, bridge_publisher_filename: str):
     log.info("Load phase started...")
     repository = DwhRepository()
@@ -196,9 +227,14 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
             repository.bulk_insert_user_table(session, review_df, batch_size)
             repository.bulk_insert_date_table(session, date_df, batch_size)
             repository.bulk_insert_review(session, review_df, batch_size)
+        except Exception as e:
+            session.rollback()
+            log.error(f"Error during data loading: {e}")
+            raise  # Re-raise to trigger Prefect retry
         finally:
             session.close()
     except Exception as e:
         log.error(f"Error while loading data due to: {e}")
+        raise  # Re-raise to trigger Prefect retry mechanism
     finally:
         log.info("Load phase completed.")
