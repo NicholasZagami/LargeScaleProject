@@ -584,23 +584,34 @@ def get_price_buckets():
 
     return query_df(
         f"""
-        SELECT
-          CASE
-            WHEN price = 0 THEN 'Free'
-            WHEN price < 5 THEN 'Low (<5)'
-            WHEN price < 15 THEN 'Mid (5-14.99)'
-            WHEN price < 30 THEN 'High (15-29.99)'
-            ELSE 'Premium (>=30)'
-          END AS bucket,
-          COUNT(*) AS n
-        FROM "{DWH_SCHEMA}"."game"
-        GROUP BY 1
+        WITH buckets AS (
+          SELECT
+            CASE
+              WHEN price = 0 THEN 'Free'
+              WHEN price < 5 THEN 'Low (<5)'
+              WHEN price < 15 THEN 'Mid (5-14.99)'
+              WHEN price < 30 THEN 'High (15-29.99)'
+              ELSE 'Premium (>=30)'
+            END AS bucket,
+            COUNT(*) AS n
+          FROM "{DWH_SCHEMA}"."game"
+          GROUP BY
+            CASE
+              WHEN price = 0 THEN 'Free'
+              WHEN price < 5 THEN 'Low (<5)'
+              WHEN price < 15 THEN 'Mid (5-14.99)'
+              WHEN price < 30 THEN 'High (15-29.99)'
+              ELSE 'Premium (>=30)'
+            END
+        )
+        SELECT bucket, n
+        FROM buckets
         ORDER BY
-          CASE bucket
-            WHEN 'Free' THEN 1
-            WHEN 'Low (<5)' THEN 2
-            WHEN 'Mid (5-14.99)' THEN 3
-            WHEN 'High (15-29.99)' THEN 4
+          CASE
+            WHEN bucket = 'Free' THEN 1
+            WHEN bucket = 'Low (<5)' THEN 2
+            WHEN bucket = 'Mid (5-14.99)' THEN 3
+            WHEN bucket = 'High (15-29.99)' THEN 4
             ELSE 5
           END
         """

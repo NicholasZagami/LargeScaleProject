@@ -93,6 +93,9 @@ def extract_data(extraction_date: str):
         mongo_data = extract_from_mongodb(extraction_date=extraction_date)
         cassandra_data = extract_from_cassandra(extraction_date=extraction_date)
 
+        mongo_run_id = "GAMES_" + run_id
+        cassandra_run_id = "REVIEWS_" + run_id
+
         print(f"Extracted {len(mongo_data)} records from MongoDB.")
         print(f"Extracted {len(cassandra_data)} records from Cassandra.")
 
@@ -100,13 +103,13 @@ def extract_data(extraction_date: str):
         # Pass schema to handle empty data gracefully
         mongo_file_path, mongo_filename = write_parquet_file(
             mongo_data,
-            run_id=run_id,
+            run_id=mongo_run_id,
             extraction_date=extraction_date,
             schema=MONGO_GAME_SCHEMA if not mongo_data else None
         )
         cassandra_file_path, cassandra_filename = write_parquet_file(
             cassandra_data,
-            run_id=run_id,
+            run_id=cassandra_run_id,
             extraction_date=extraction_date,
             schema=CASSANDRA_REVIEW_SCHEMA if not cassandra_data else None
         )

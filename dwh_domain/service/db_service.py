@@ -7,6 +7,7 @@ from dwh_domain.model.dwh_model import (
     Genre, Category, Publisher,
     GenreGame, CategoryGame, PublisherGame
 )
+from dwh_domain.tasks.extract import update_cassandra_reviews_date
 
 log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
@@ -94,6 +95,8 @@ class DwhRepository:
             game_columns.append('is_free')
         if 'release_date' in game_df.columns:
             game_columns.append('release_date')
+        if 'price' in game_df.columns:
+            game_columns.append('price')
 
         unique_games = game_df.select(game_columns).unique()
         total_games = len(unique_games)
@@ -118,6 +121,7 @@ class DwhRepository:
                         name=row.get('name'),
                         review_score=row.get('review_score'),
                         required_age=row.get('required_age'),
+                        price=row.get('price'),
                         free_to_play=row.get('is_free', False),
                         release_date=row.get('release_date')
                     )
@@ -376,7 +380,13 @@ class DwhRepository:
         existing_reviews = {str(review.ID_rec) for review in session.query(Review.ID_rec).all()}
         log.info(f"Loaded {len(existing_reviews)} existing reviews")
 
+        # Load existing games to verify foreign key references
+        existing_games = {str(game.ID_game) for game in session.query(Game.ID_game).all()}
+        log.info(f"Loaded {len(existing_games)} existing games for FK validation")
+
         reviews_inserted = 0
+        reviews_skipped = 0
+        skipped_review_ids = []
 
         # Process reviews in batches
         for batch_start in range(0, total_reviews, batch_size):
@@ -387,22 +397,33 @@ class DwhRepository:
 
             for row in batch_reviews.iter_rows(named=True):
                 review_id = str(row.get('rec_id'))
-                # Only insert if review doesn't already exist
-                if review_id not in existing_reviews:
-                    reviews_to_insert.append(Review(
-                        ID_rec=review_id,
-                        ID_user=str(row.get('author_id')),
-                        ID_game=str(row.get('appid')),
-                        ID_date=str(row.get('date_id')),
-                        votes_up=row.get('votes_up'),
-                        votes_funny=row.get('votes_funny'),
-                        comment_count=row.get('comment_count'),
-                        review_word_count=row.get('review_word_count'),
-                        sentiment=row.get('sentiment_0_10_round'),
-                        review_text=row.get('review')
-                    ))
-                    # Add to existing_reviews set to avoid re-inserting in next batch
-                    existing_reviews.add(review_id)
+                game_id = str(row.get('appid'))
+
+                # Skip if review already exists
+                if review_id in existing_reviews:
+                    continue
+
+                # Skip if game doesn't exist (foreign key constraint)
+                if game_id not in existing_games:
+                    reviews_skipped += 1
+                    skipped_review_ids.append(review_id)
+                    log.debug(f"Skipping review {review_id}: game {game_id} does not exist")
+                    continue
+
+                reviews_to_insert.append(Review(
+                    ID_rec=review_id,
+                    ID_user=str(row.get('author_id')),
+                    ID_game=game_id,
+                    ID_date=str(row.get('date_id')),
+                    votes_up=row.get('votes_up'),
+                    votes_funny=row.get('votes_funny'),
+                    comment_count=row.get('comment_count'),
+                    review_word_count=row.get('review_word_count'),
+                    sentiment=row.get('sentiment_0_10_round'),
+                    review_text=row.get('review')
+                ))
+                # Add to existing_reviews set to avoid re-inserting in next batch
+                existing_reviews.add(review_id)
 
             if reviews_to_insert:
                 session.bulk_save_objects(reviews_to_insert)
@@ -413,3 +434,8 @@ class DwhRepository:
 
         session.commit()
         print(f"✅ Total reviews inserted: {reviews_inserted}")
+        if reviews_skipped > 0:
+            print(f"⚠️  Total reviews skipped (missing game): {reviews_skipped}")
+            # Create sub-dataframe with only skipped reviews
+            skipped_reviews_df = review_df.filter(pl.col('rec_id').cast(str).is_in(skipped_review_ids))
+            update_cassandra_reviews_date(skipped_reviews_df, days_to_add=1)

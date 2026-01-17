@@ -43,6 +43,7 @@ class Game(Base):
     review_score = Column(Integer)
     required_age = Column(Integer)
     free_to_play = Column(Boolean)
+    price = Column(Float)
     release_date = Column(String)
 
     # Relationships
