@@ -64,6 +64,7 @@ CREATE TABLE dwh.Game (
     name TEXT NOT NULL,
     review_score INTEGER,
     required_age INTEGER,
+    price FLOAT,
     free_to_play BOOLEAN,
     release_date TEXT
 );
