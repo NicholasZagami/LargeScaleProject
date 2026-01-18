@@ -25,6 +25,25 @@ class FailedReview(Base):
     created_at = Column(DateTime, nullable=False)
 
 
+class PipelineRun(Base):
+    """
+    Tracks which extraction dates have been processed successfully.
+    Used to identify and retry failed/missed dates.
+    """
+    __tablename__ = 'pipeline_run'
+    __table_args__ = (
+        Index('idx_pipeline_run_status', 'status'),
+        {'schema': 'dwh'}
+    )
+
+    extraction_date = Column(Date, primary_key=True)
+    status = Column(String, nullable=False, default='pending')  # pending, running, completed, failed
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
+    retry_count = Column(Integer, nullable=False, default=0)
+
+
 class DateTable(Base):
     __tablename__ = 'date'
     __table_args__ = {'schema': 'dwh'}

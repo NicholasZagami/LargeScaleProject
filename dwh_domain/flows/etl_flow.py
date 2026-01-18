@@ -19,7 +19,11 @@ from dwh_domain.tasks.extract import (
     extract_from_minio,
     add_to_failed_reviews_queue,
     get_failed_reviews_ready_for_retry,
-    remove_from_failed_reviews_queue
+    remove_from_failed_reviews_queue,
+    get_pending_extraction_dates,
+    register_pipeline_run,
+    mark_pipeline_run_completed,
+    mark_pipeline_run_failed
 )
 from dwh_domain.tasks.load import load_to_minio
 from dwh_domain.tasks.transform import Transform
@@ -33,6 +37,9 @@ def etl_pipeline(extraction_date: Optional[str] = None):
     """
     Main ETL pipeline flow.
 
+    Processes pending/failed dates first (oldest to newest), then today's date.
+    File names use the actual extraction_date being processed.
+
     Args:
         extraction_date: Date to extract data (format: YYYY-MM-DD).
                         If None, uses current date.
@@ -41,7 +48,7 @@ def etl_pipeline(extraction_date: Optional[str] = None):
     if extraction_date is None:
         extraction_date = datetime.now().strftime('%Y-%m-%d')
 
-    log.info(f"ETL pipeline started with extraction date: {extraction_date}")
+    log.info(f"ETL pipeline started with target date: {extraction_date}")
 
     # First, process any failed reviews that are ready for retry
     try:
@@ -49,6 +56,32 @@ def etl_pipeline(extraction_date: Optional[str] = None):
     except Exception as e:
         log.warning(f"Failed to process failed reviews queue: {e}")
         # Continue with main pipeline even if queue processing fails
+
+    # Get any pending/failed dates that need to be processed before today
+    pending_dates = get_pending_extraction_dates(extraction_date)
+
+    # Build list of all dates to process: pending dates + today's date
+    dates_to_process = pending_dates + [extraction_date]
+
+    log.info(f"Dates to process: {dates_to_process}")
+
+    # Process each date
+    for date in dates_to_process:
+        log.info(f"Processing extraction date: {date}")
+        run_etl_for_date(date)
+
+
+@flow(name="run_etl_for_date")
+def run_etl_for_date(extraction_date: str):
+    """
+    Run the ETL pipeline for a specific extraction date.
+    Tracks the run status in pipeline_run table.
+
+    Args:
+        extraction_date: Date to extract data (format: YYYY-MM-DD)
+    """
+    # Register this run as 'running'
+    register_pipeline_run(extraction_date)
 
     try:
         # Extraction phase
@@ -61,7 +94,10 @@ def etl_pipeline(extraction_date: Optional[str] = None):
         # Load phase with retry handling
         load_data(transformed_game_filename, transformed_review_filename, transformed_date_filename, bridge_genre_filename, bridge_category_filename, bridge_publisher_filename)
 
-        log.info("ETL pipeline completed successfully.")
+        log.info(f"ETL pipeline for {extraction_date} completed successfully.")
+
+        # Mark as completed
+        mark_pipeline_run_completed(extraction_date)
 
         log.info("Cleaning up temporary files...")
 
@@ -85,8 +121,12 @@ def etl_pipeline(extraction_date: Optional[str] = None):
         log.info(f"{extracted_dir} and {transformed_dir} path deleted.")
 
     except Exception as e:
-        # If all retries failed, add reviews to failed queue
-        log.warning(f"All retries exhausted. Error: {e}")
+        error_msg = str(e)
+        log.warning(f"Pipeline failed for {extraction_date}. Error: {error_msg}")
+
+        # Mark as failed
+        mark_pipeline_run_failed(extraction_date, error_msg)
+
         log.warning("Adding reviews to failed_reviews queue for later retry...")
 
         try:
@@ -97,12 +137,12 @@ def etl_pipeline(extraction_date: Optional[str] = None):
             # Add to failed reviews queue instead of modifying updated_at
             add_to_failed_reviews_queue(
                 review_df,
-                error_message=f"Pipeline failure after retries: {str(e)}"
+                error_message=f"Pipeline failure for {extraction_date}: {error_msg}"
             )
             log.info("Reviews added to failed_reviews queue. They will be retried in future runs.")
         except Exception as queue_error:
             log.error(f"Failed to add reviews to failed queue: {queue_error}")
-            raise e  # Re-raise the original error
+            # Don't re-raise, the date is already marked as failed
 
 @flow(name="extract_data", retries=3, retry_delay_seconds=5)
 def extract_data(extraction_date: str):

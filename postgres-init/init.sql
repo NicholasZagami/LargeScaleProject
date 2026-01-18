@@ -23,6 +23,7 @@ DROP TABLE IF EXISTS dwh.Genre CASCADE;
 DROP TABLE IF EXISTS dwh.Category CASCADE;
 DROP TABLE IF EXISTS dwh.Publisher CASCADE;
 DROP TABLE IF EXISTS dwh.Failed_Review CASCADE;
+DROP TABLE IF EXISTS dwh.Pipeline_Run CASCADE;
 
 -- ============================================
 -- 3) Dimension Tables (schema dwh)
@@ -140,6 +141,20 @@ CREATE TABLE dwh.Failed_Review (
 
 -- Index for efficient querying of reviews ready for retry
 CREATE INDEX idx_failed_review_retry_after ON dwh.Failed_Review (retry_after);
+
+-- Pipeline Run Tracker Table
+-- Tracks which extraction dates have been processed successfully
+CREATE TABLE dwh.Pipeline_Run (
+    extraction_date DATE PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, running, completed, failed
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0
+);
+
+-- Index for efficient querying of pending/failed runs
+CREATE INDEX idx_pipeline_run_status ON dwh.Pipeline_Run (status);
 
 -- ============================================
 -- 7) Grants and Permissions

@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import config
-from dwh_domain.model.dwh_model import FailedReview
+from dwh_domain.model.dwh_model import FailedReview, PipelineRun
 
 log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
@@ -260,6 +260,188 @@ def remove_from_failed_reviews_queue(rec_ids: List[str]):
     except Exception as e:
         session.rollback()
         log.error(f"Error removing from failed_review queue: {e}")
+        raise
+    finally:
+        session.close()
+
+
+@task(name="get_pending_extraction_dates")
+def get_pending_extraction_dates(current_date: str, max_retry_count: int = 10) -> List[str]:
+    """
+    Get list of extraction dates that need to be processed (pending or failed).
+    Returns dates in chronological order (oldest first).
+
+    Args:
+        current_date: Today's date (format: YYYY-MM-DD)
+        max_retry_count: Maximum number of retries before giving up on a date
+
+    Returns:
+        List of date strings (YYYY-MM-DD) that need processing
+    """
+    engine = create_engine(config.POSTGRES_CONNECTION_STRING)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        current = datetime.strptime(current_date, '%Y-%m-%d').date()
+
+        # Get all pending or failed runs that haven't exceeded max retries
+        results = session.query(PipelineRun).filter(
+            PipelineRun.status.in_(['running', 'pending', 'failed']),
+            PipelineRun.retry_count < max_retry_count,
+            PipelineRun.extraction_date < current  # Only past dates, not today
+        ).order_by(PipelineRun.extraction_date.asc()).all()
+
+        dates = [r.extraction_date.strftime('%Y-%m-%d') for r in results]
+
+        if dates:
+            log.info(f"Found {len(dates)} pending/failed extraction dates: {dates}")
+        else:
+            log.info("No pending/failed extraction dates found")
+
+        return dates
+
+    except Exception as e:
+        log.error(f"Error getting pending extraction dates: {e}")
+        raise
+    finally:
+        session.close()
+
+
+@task(name="register_pipeline_run")
+def register_pipeline_run(extraction_date: str):
+    """
+    Register a new pipeline run or update existing one to 'running' status.
+
+    Args:
+        extraction_date: The date being processed (format: YYYY-MM-DD)
+    """
+    engine = create_engine(config.POSTGRES_CONNECTION_STRING)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        date_obj = datetime.strptime(extraction_date, '%Y-%m-%d').date()
+        now = datetime.now()
+
+        existing = session.query(PipelineRun).filter(
+            PipelineRun.extraction_date == date_obj
+        ).first()
+
+        if existing:
+            existing.status = 'running'
+            existing.started_at = now
+            existing.error_message = None
+            log.info(f"Updated pipeline run for {extraction_date} to 'running' (retry #{existing.retry_count + 1})")
+        else:
+            pipeline_run = PipelineRun(
+                extraction_date=date_obj,
+                status='running',
+                started_at=now,
+                retry_count=0
+            )
+            session.add(pipeline_run)
+            log.info(f"Registered new pipeline run for {extraction_date}")
+
+        session.commit()
+
+    except Exception as e:
+        session.rollback()
+        log.error(f"Error registering pipeline run: {e}")
+        raise
+    finally:
+        session.close()
+
+
+@task(name="mark_pipeline_run_completed")
+def mark_pipeline_run_completed(extraction_date: str):
+    """
+    Mark a pipeline run as successfully completed.
+
+    Args:
+        extraction_date: The date that was processed (format: YYYY-MM-DD)
+    """
+    engine = create_engine(config.POSTGRES_CONNECTION_STRING)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        date_obj = datetime.strptime(extraction_date, '%Y-%m-%d').date()
+        now = datetime.now()
+
+        existing = session.query(PipelineRun).filter(
+            PipelineRun.extraction_date == date_obj
+        ).first()
+
+        if existing:
+            existing.status = 'completed'
+            existing.completed_at = now
+            existing.error_message = None
+            log.info(f"Marked pipeline run for {extraction_date} as 'completed'")
+        else:
+            # Should not happen, but handle gracefully
+            pipeline_run = PipelineRun(
+                extraction_date=date_obj,
+                status='completed',
+                completed_at=now,
+                retry_count=0
+            )
+            session.add(pipeline_run)
+            log.info(f"Created completed pipeline run for {extraction_date}")
+
+        session.commit()
+
+    except Exception as e:
+        session.rollback()
+        log.error(f"Error marking pipeline run as completed: {e}")
+        raise
+    finally:
+        session.close()
+
+
+@task(name="mark_pipeline_run_failed")
+def mark_pipeline_run_failed(extraction_date: str, error_message: str):
+    """
+    Mark a pipeline run as failed and increment retry count.
+
+    Args:
+        extraction_date: The date that failed (format: YYYY-MM-DD)
+        error_message: Description of the failure
+    """
+    engine = create_engine(config.POSTGRES_CONNECTION_STRING)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        date_obj = datetime.strptime(extraction_date, '%Y-%m-%d').date()
+        now = datetime.now()
+
+        existing = session.query(PipelineRun).filter(
+            PipelineRun.extraction_date == date_obj
+        ).first()
+
+        if existing:
+            existing.status = 'failed'
+            existing.completed_at = now
+            existing.error_message = error_message
+            existing.retry_count += 1
+            log.info(f"Marked pipeline run for {extraction_date} as 'failed' (retry count: {existing.retry_count})")
+        else:
+            pipeline_run = PipelineRun(
+                extraction_date=date_obj,
+                status='failed',
+                completed_at=now,
+                error_message=error_message,
+                retry_count=1
+            )
+            session.add(pipeline_run)
+            log.info(f"Created failed pipeline run for {extraction_date}")
+
+        session.commit()
+
+    except Exception as e:
+        session.rollback()
+        log.error(f"Error marking pipeline run as failed: {e}")
         raise
     finally:
         session.close()
