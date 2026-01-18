@@ -22,6 +22,7 @@ DROP TABLE IF EXISTS dwh.Date CASCADE;
 DROP TABLE IF EXISTS dwh.Genre CASCADE;
 DROP TABLE IF EXISTS dwh.Category CASCADE;
 DROP TABLE IF EXISTS dwh.Publisher CASCADE;
+DROP TABLE IF EXISTS dwh.Failed_Review CASCADE;
 
 -- ============================================
 -- 3) Dimension Tables (schema dwh)
@@ -121,7 +122,27 @@ CREATE TABLE dwh.Publisher_Game (
 );
 
 -- ============================================
--- 6) Grants and Permissions
+-- 6) Queue Tables (schema dwh)
+-- ============================================
+
+-- Failed Reviews Queue Table
+-- Stores reviews that failed processing (e.g., missing game reference)
+-- Preserves original_date instead of modifying updated_at in Cassandra
+CREATE TABLE dwh.Failed_Review (
+    rec_id TEXT PRIMARY KEY,
+    original_date TIMESTAMP NOT NULL,
+    retry_after TIMESTAMP NOT NULL,
+    failure_count INTEGER NOT NULL DEFAULT 1,
+    last_error TEXT,
+    appid TEXT,
+    created_at TIMESTAMP NOT NULL
+);
+
+-- Index for efficient querying of reviews ready for retry
+CREATE INDEX idx_failed_review_retry_after ON dwh.Failed_Review (retry_after);
+
+-- ============================================
+-- 7) Grants and Permissions
 -- ============================================
 
 -- IMPORTANT:

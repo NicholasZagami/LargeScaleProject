@@ -1,20 +1,30 @@
-import os
-import polars as pl
 import logging as log
-from datetime import datetime, timedelta
+import os
+from datetime import datetime
 from typing import Optional
 
+import polars as pl
+from cassandra.cluster import Cluster
 from prefect import flow
+from prefect.logging import get_run_logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import config
-from dwh_domain.tasks.extract import (extract_from_mongodb, extract_from_cassandra, extract_from_minio, update_cassandra_reviews_date)
-from dwh_domain.utils.file_writer import write_parquet_file, generate_run_id
-from dwh_domain.utils.schemas import MONGO_GAME_SCHEMA, CASSANDRA_REVIEW_SCHEMA
+from dwh_domain.model.dwh_model import Game
+from dwh_domain.service.db_service import DwhRepository
+from dwh_domain.tasks.extract import (
+    extract_from_mongodb,
+    extract_from_cassandra,
+    extract_from_minio,
+    add_to_failed_reviews_queue,
+    get_failed_reviews_ready_for_retry,
+    remove_from_failed_reviews_queue
+)
 from dwh_domain.tasks.load import load_to_minio
 from dwh_domain.tasks.transform import Transform
-from dwh_domain.service.db_service import DwhRepository
+from dwh_domain.utils.file_writer import write_parquet_file, generate_run_id
+from dwh_domain.utils.schemas import MONGO_GAME_SCHEMA, CASSANDRA_REVIEW_SCHEMA
 
 log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
@@ -32,6 +42,13 @@ def etl_pipeline(extraction_date: Optional[str] = None):
         extraction_date = datetime.now().strftime('%Y-%m-%d')
 
     log.info(f"ETL pipeline started with extraction date: {extraction_date}")
+
+    # First, process any failed reviews that are ready for retry
+    try:
+        process_failed_reviews_queue(extraction_date)
+    except Exception as e:
+        log.warning(f"Failed to process failed reviews queue: {e}")
+        # Continue with main pipeline even if queue processing fails
 
     try:
         # Extraction phase
@@ -68,20 +85,23 @@ def etl_pipeline(extraction_date: Optional[str] = None):
         log.info(f"{extracted_dir} and {transformed_dir} path deleted.")
 
     except Exception as e:
-        # If all retries failed, postpone review processing
+        # If all retries failed, add reviews to failed queue
         log.warning(f"All retries exhausted. Error: {e}")
-        log.warning("Postponing review processing by updating Cassandra updated_at field...")
+        log.warning("Adding reviews to failed_reviews queue for later retry...")
 
         try:
             # Read the review dataframe to get the review IDs that failed
             review_downloaded_file_path = extract_from_minio("transformed-files", transformed_review_filename)
             review_df = pl.read_parquet(review_downloaded_file_path)
 
-            # Update the updated_at field in Cassandra for these reviews
-            update_cassandra_reviews_date(review_df, days_to_add=1)
-            log.info("Reviews postponed by 1 day in Cassandra. They will be processed in the next run.")
-        except Exception as postpone_error:
-            log.error(f"Failed to postpone reviews: {postpone_error}")
+            # Add to failed reviews queue instead of modifying updated_at
+            add_to_failed_reviews_queue(
+                review_df,
+                error_message=f"Pipeline failure after retries: {str(e)}"
+            )
+            log.info("Reviews added to failed_reviews queue. They will be retried in future runs.")
+        except Exception as queue_error:
+            log.error(f"Failed to add reviews to failed queue: {queue_error}")
             raise e  # Re-raise the original error
 
 @flow(name="extract_data", retries=3, retry_delay_seconds=5)
@@ -241,3 +261,147 @@ def load_data(transformed_game_filename: str, transformed_review_filename: str, 
         raise  # Re-raise to trigger Prefect retry mechanism
     finally:
         log.info("Load phase completed.")
+
+
+@flow(name="process_failed_reviews_queue")
+def process_failed_reviews_queue(extraction_date: str = None):
+    """
+    Process reviews from the failed_review queue (PostgreSQL) that are ready for retry.
+    This flow retrieves the full review data from Cassandra and attempts
+    to load them into the DWH.
+
+    Args:
+        extraction_date: Reference date for retry eligibility check (format: YYYY-MM-DD).
+                        If None, uses current system time.
+    """
+    logger = get_run_logger()
+    logger.info("Checking failed_review queue for reviews ready to retry...")
+
+    # Get failed reviews ready for retry, using extraction_date as reference
+    failed_reviews_df = get_failed_reviews_ready_for_retry(max_failures=10, reference_date=extraction_date)
+
+    if len(failed_reviews_df) == 0:
+        logger.info("No failed reviews ready for retry")
+        return
+
+    logger.info(f"Found {len(failed_reviews_df)} reviews to retry")
+
+    # Get the full review data from Cassandra
+    cluster = Cluster(
+        contact_points=[config.CASSANDRA_HOST],
+        port=config.CASSANDRA_PORT
+    )
+    cassandra_session = cluster.connect(config.CASSANDRA_KEYSPACE)
+
+    try:
+        rec_ids = failed_reviews_df['rec_id'].to_list()
+
+        # Fetch full review data
+        query = cassandra_session.prepare("""
+            SELECT rec_id, author_id, appid, playtime_forever, playtime_at_review,
+                   num_reviews, last_played, language, review, voted_up,
+                   votes_up, votes_funny, received_for_free, written_during_early_access,
+                   sent_compound, sentiment_0_10, sentiment_0_10_round, updated_at
+            FROM reviews WHERE rec_id = ?
+        """)
+
+        reviews_data = []
+        for rec_id in rec_ids:
+            result = cassandra_session.execute(query, (int(rec_id),)).one()
+            if result:
+                reviews_data.append({
+                    'rec_id': result.rec_id,
+                    'author_id': result.author_id,
+                    'appid': result.appid,
+                    'playtime_forever': result.playtime_forever,
+                    'playtime_at_review': result.playtime_at_review,
+                    'num_reviews': result.num_reviews,
+                    'last_played': result.last_played,
+                    'language': result.language,
+                    'review': result.review,
+                    'voted_up': result.voted_up,
+                    'votes_up': result.votes_up,
+                    'votes_funny': result.votes_funny,
+                    'received_for_free': result.received_for_free,
+                    'written_during_early_access': result.written_during_early_access,
+                    'sent_compound': result.sent_compound,
+                    'sentiment_0_10': result.sentiment_0_10,
+                    'sentiment_0_10_round': result.sentiment_0_10_round,
+                    'updated_at': result.updated_at,
+                })
+
+        if not reviews_data:
+            logger.warning("No review data found in Cassandra for failed reviews")
+            return
+
+        review_df = pl.DataFrame(reviews_data, schema=CASSANDRA_REVIEW_SCHEMA)
+
+    finally:
+        cluster.shutdown()
+
+    # Transform the review data (same as normal pipeline)
+    transform = Transform()
+    review_df = transform.unix_timestamp_to_datetime(review_df, 'last_played')
+    date_df, review_final = transform.extract_unique_dates_df_from_review_df(review_df)
+
+    # Attempt to load into DWH
+    repository = DwhRepository()
+    engine = create_engine(config.POSTGRES_CONNECTION_STRING)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    try:
+        # Insert user and dates
+        repository.bulk_insert_date_table(session, date_df, batch_size=30000)
+        repository.bulk_insert_user_table(session, review_final, batch_size=30000)
+
+        # Track which reviews can be successfully processed (game exists)
+        existing_games = {str(game.ID_game) for game in session.query(Game.ID_game).all()}
+
+        successfully_processed = []
+        still_failing = []
+
+        for row in review_final.iter_rows(named=True):
+            rec_id = str(row.get('rec_id'))
+            game_id = str(row.get('appid'))
+
+            if game_id in existing_games:
+                successfully_processed.append(rec_id)
+            else:
+                still_failing.append(rec_id)
+
+        if successfully_processed:
+            # Insert only the reviews that can now be processed
+            processable_df = review_final.filter(
+                pl.col('rec_id').cast(str).is_in(successfully_processed)
+            )
+            repository.bulk_insert_review(session, processable_df, batch_size=30000)
+
+            # Remove successfully processed reviews from the failed queue
+            remove_from_failed_reviews_queue(successfully_processed)
+            logger.info(f"Successfully processed {len(successfully_processed)} previously failed reviews")
+
+        if still_failing:
+            logger.info(f"{len(still_failing)} reviews still cannot be processed (games still missing)")
+            # Increment failure count for reviews that still can't be processed
+            still_failing_df = review_final.filter(
+                pl.col('rec_id').cast(str).is_in(still_failing)
+            )
+            add_to_failed_reviews_queue(
+                still_failing_df,
+                error_message="Game still missing in DWH during retry"
+            )
+
+        session.commit()
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error processing failed reviews queue: {e}")
+        # Re-queue all reviews with updated failure count
+        add_to_failed_reviews_queue(
+            review_final,
+            error_message=f"Retry failed: {str(e)}"
+        )
+        raise
+    finally:
+        session.close()

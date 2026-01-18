@@ -1,8 +1,28 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DECIMAL, Date, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, Date, DateTime, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+
+
+class FailedReview(Base):
+    """
+    Queue table for reviews that failed processing (e.g., missing game reference).
+    Preserves original_date instead of modifying updated_at in Cassandra.
+    """
+    __tablename__ = 'failed_review'
+    __table_args__ = (
+        Index('idx_failed_review_retry_after', 'retry_after'),
+        {'schema': 'dwh'}
+    )
+
+    rec_id = Column('rec_id', String, primary_key=True)
+    original_date = Column(DateTime, nullable=False)
+    retry_after = Column(DateTime, nullable=False)
+    failure_count = Column(Integer, nullable=False, default=1)
+    last_error = Column(Text)
+    appid = Column(String)
+    created_at = Column(DateTime, nullable=False)
 
 
 class DateTable(Base):

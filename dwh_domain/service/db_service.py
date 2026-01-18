@@ -7,7 +7,7 @@ from dwh_domain.model.dwh_model import (
     Genre, Category, Publisher,
     GenreGame, CategoryGame, PublisherGame
 )
-from dwh_domain.tasks.extract import update_cassandra_reviews_date
+from dwh_domain.tasks.extract import add_to_failed_reviews_queue
 
 log.basicConfig(level=log.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
@@ -438,4 +438,8 @@ class DwhRepository:
             print(f"⚠️  Total reviews skipped (missing game): {reviews_skipped}")
             # Create sub-dataframe with only skipped reviews
             skipped_reviews_df = review_df.filter(pl.col('rec_id').cast(str).is_in(skipped_review_ids))
-            update_cassandra_reviews_date(skipped_reviews_df, days_to_add=1)
+            # Add to failed reviews queue instead of modifying updated_at
+            add_to_failed_reviews_queue(
+                skipped_reviews_df,
+                error_message=f"Missing game in DWH: {reviews_skipped} reviews skipped during bulk insert"
+            )
