@@ -113,7 +113,7 @@ def get_kpis() -> KPIs:
         if total_games == 0 and total_reviews == 0:
             return fallback
 
-        avg_df = query_df(f'SELECT AVG(review_score) AS avg_score FROM "{DWH_SCHEMA}"."game"')
+        avg_df = query_df(f'SELECT AVG(CASE WHEN review_score > 0 THEN review_score END) AS avg_score FROM "{DWH_SCHEMA}"."game"')
         avg_score_0_100 = _safe_float(avg_df.iloc[0]["avg_score"], 0.0)
 
         # 0-100 -> 0-5 stelle
@@ -525,15 +525,18 @@ def get_wordcount_bins(date_from=None, date_to=None):
         f"""
         SELECT
           CASE
-            WHEN r.review_word_count < 50 THEN '<50'
-            WHEN r.review_word_count < 100 THEN '50-99'
-            WHEN r.review_word_count < 200 THEN '100-199'
-            WHEN r.review_word_count < 400 THEN '200-399'
-            ELSE '400+'
+            WHEN LENGTH(r.review_text) < 10 THEN '1-9'
+            WHEN LENGTH(r.review_text) < 20 THEN '10-19'
+            WHEN LENGTH(r.review_text) < 30 THEN '20-29'
+            WHEN LENGTH(r.review_text) < 50 THEN '30-49'
+            WHEN LENGTH(r.review_text) < 100 THEN '50-99'
+            WHEN LENGTH(r.review_text) < 200 THEN '100-199'
+            WHEN LENGTH(r.review_text) < 500 THEN '200-499'
+            ELSE '500+'
           END AS wc_bin,
           COUNT(*) AS n,
           AVG(r.sentiment_round)::numeric(10,2) AS avg_sentiment,
-          MIN(r.review_word_count) AS wc_sort_key
+          MIN(LENGTH(r.review_text)) AS wc_sort_key
         FROM "{DWH_SCHEMA}"."review" r
         JOIN "{DWH_SCHEMA}"."date" d ON d.id_date = r.id_date
         WHERE 1=1
@@ -570,7 +573,7 @@ def get_games_overview_kpis():
       COUNT(*) AS total_games,
       SUM(CASE WHEN free_to_play IS TRUE THEN 1 ELSE 0 END) AS free_games,
       SUM(CASE WHEN free_to_play IS FALSE THEN 1 ELSE 0 END) AS paid_games,
-      AVG(review_score)::numeric(10,2) AS avg_score_0_100
+      AVG(CASE WHEN review_score > 0 THEN review_score END)::numeric(10,2) AS avg_score_0_100
       {", AVG(price)::numeric(10,2) AS avg_price" if has_price else ""}
     FROM "{DWH_SCHEMA}"."game"
     """
@@ -854,7 +857,7 @@ def get_free_vs_paid_rating():
         SELECT
           CASE WHEN free_to_play THEN 'Free-to-play' ELSE 'Paid' END AS segment,
           COUNT(*) AS games,
-          AVG(review_score)::numeric(10,2) AS avg_score_0_100
+          AVG(CASE WHEN review_score > 0 THEN review_score END)::numeric(10,2) AS avg_score_0_100
         FROM "{DWH_SCHEMA}"."game"
         GROUP BY 1
         ORDER BY 1
@@ -883,7 +886,7 @@ def get_price_bucket_vs_rating():
             ELSE 'High (>=20)'
           END AS bucket,
           COUNT(*) AS games,
-          AVG(review_score)::numeric(10,2) AS avg_score_0_100,
+          AVG(CASE WHEN review_score > 0 THEN review_score END)::numeric(10,2) AS avg_score_0_100,
           MIN(price) AS sort_key
         FROM "{DWH_SCHEMA}"."game"
         GROUP BY 1
