@@ -45,7 +45,7 @@ st.caption(
 min_day, max_day = get_date_bounds()
 
 with st.expander("🎛️ Filtri", expanded=True):
-    c1, c2, c3 = st.columns([1.8, 1, 1])
+    c1, c2 = st.columns([1.8, 1])
 
     with c1:
         if min_day is None or max_day is None:
@@ -66,9 +66,6 @@ with st.expander("🎛️ Filtri", expanded=True):
 
     with c2:
         freq = st.selectbox("Granularità trend", ["month", "year"], index=0)
-
-    with c3:
-        rating_bin = st.selectbox("Rating bin size", [5, 10, 20], index=1)
 
 section_divider()
 
@@ -124,15 +121,15 @@ with tab_overview:
 # ------------------------------
 with tab_rating:
     st.subheader("Distribuzione del rating (review_score dei giochi)")
-    st.caption("Distribuzione del punteggio 0–100 associato ai giochi (dimensione `game`).")
+    st.caption("Distribuzione del punteggio 1–9 associato ai giochi (dimensione `game`).")
 
-    hist = get_rating_histogram(bin_size=int(rating_bin))
+    hist = get_rating_histogram()
     if hist.empty:
         st.info("Distribuzione rating non disponibile (manca `game.review_score`?).")
     else:
         st.bar_chart(hist.set_index("score_bin")[["n"]])
         st.caption(
-            "Interpretazione: mostra la qualità percepita del catalogo (rating 0–100). "
+            "Interpretazione: mostra la qualità percepita del catalogo (rating 1–9). "
             "Utile per osservare skew, outlier e concentrazione in fasce."
         )
 

@@ -356,8 +356,10 @@ def get_top_games_filtered(
         where_free = "AND g.free_to_play = :free_to_play"
 
     where_age = ""
-    if required_age != "All":
-        where_age = "AND g.required_age = :required_age"
+    if required_age == "18+":
+        where_age = "AND g.required_age >= 18"
+    elif required_age == "0":
+        where_age = "AND g.required_age = 0"
 
     where_date = ""
     params = {"limit": int(limit), "min_reviews": int(min_reviews)}
@@ -375,8 +377,6 @@ def get_top_games_filtered(
         params["publisher"] = publisher
     if free_to_play != "All":
         params["free_to_play"] = (free_to_play == "Yes")
-    if required_age != "All":
-        params["required_age"] = 18 if required_age == "18+" else 0
 
     order_map = {
         "reviews": "reviews DESC",
@@ -745,18 +745,18 @@ def get_rating_histogram(bin_size: int = 10):
     if not _table_exists(DWH_SCHEMA, "game"):
         return _empty_df()
 
-    # review_score: 0-100
+    # review_score: 1-9 (escludi 0 = nessun rating)
+    # Raggruppa per singolo valore di score
     return query_df(
         f"""
         SELECT
-          (review_score / :bin_size) * :bin_size AS score_bin,
+          review_score AS score_bin,
           COUNT(*) AS n
         FROM "{DWH_SCHEMA}"."game"
-        WHERE review_score IS NOT NULL
+        WHERE review_score IS NOT NULL AND review_score > 0
         GROUP BY 1
         ORDER BY 1
         """,
-        {"bin_size": int(bin_size)},
     )
 
 @st.cache_data(ttl=120)
@@ -879,7 +879,6 @@ def get_price_bucket_vs_rating():
         f"""
         SELECT
           CASE
-            WHEN price IS NULL THEN 'Unknown'
             WHEN price = 0 THEN 'Free'
             WHEN price < 5 THEN 'Low (<5)'
             WHEN price < 20 THEN 'Mid (5-19.99)'
@@ -889,8 +888,9 @@ def get_price_bucket_vs_rating():
           AVG(CASE WHEN review_score > 0 THEN review_score END)::numeric(10,2) AS avg_score_0_100,
           MIN(price) AS sort_key
         FROM "{DWH_SCHEMA}"."game"
+        WHERE price IS NOT NULL
         GROUP BY 1
-        ORDER BY sort_key NULLS LAST
+        ORDER BY sort_key
         """
     )
 
