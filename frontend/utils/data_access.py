@@ -114,10 +114,10 @@ def get_kpis() -> KPIs:
             return fallback
 
         avg_df = query_df(f'SELECT AVG(CASE WHEN review_score > 0 THEN review_score END) AS avg_score FROM "{DWH_SCHEMA}"."game"')
-        avg_score_0_100 = _safe_float(avg_df.iloc[0]["avg_score"], 0.0)
+        avg_score_0_9 = _safe_float(avg_df.iloc[0]["avg_score"], 0.0)
 
-        # 0-100 -> 0-5 stelle
-        avg_rating_0_5 = avg_score_0_100 / 20.0 if avg_score_0_100 else fallback.avg_rating
+        # review_score 0-9 → 0-5 stelle
+        avg_rating_0_5 = (avg_score_0_9 * 5 / 9) if avg_score_0_9 else fallback.avg_rating
 
         return KPIs(
             total_games=total_games,

@@ -54,9 +54,13 @@ class DwhRepository:
         log.info(f"Bulk inserting games and bridge tables in batches of {batch_size}...")
         log.info("Pre-loading lookup dictionaries...")
 
-        # Load all existing games into a set for O(1) lookup
+        # Load all existing games into a set for O(1) lookup (by ID)
         existing_games = {game.ID_game for game in session.query(Game.ID_game).all()}
-        log.info(f"Loaded {len(existing_games)} existing games")
+        log.info(f"Loaded {len(existing_games)} existing games (by ID)")
+
+        # Load all existing game names for duplicate detection
+        existing_game_names = {game.name for game in session.query(Game.name).all()}
+        log.info(f"Loaded {len(existing_game_names)} existing game names")
 
         # Load all genres into a dictionary: {name -> ID}
         genre_lookup = {genre.genre: genre.ID_genre for genre in session.query(Genre).all()}
@@ -99,9 +103,36 @@ class DwhRepository:
             game_columns.append('price')
 
         unique_games = game_df.select(game_columns).unique()
-        total_games = len(unique_games)
 
-        log.info(f"Processing {total_games} unique games...")
+        # Filter out games that already exist in DB (by name)
+        original_count = len(unique_games)
+        if existing_game_names:
+            # Get appids of games with duplicate names
+            duplicate_appids = unique_games.filter(
+                pl.col('name').is_in(list(existing_game_names))
+            )['appid'].to_list()
+
+            # Filter games dataframe
+            unique_games = unique_games.filter(
+                ~pl.col('name').is_in(list(existing_game_names))
+            )
+
+            # Filter bridge dataframes to remove duplicate games
+            if duplicate_appids:
+                duplicate_appids_str = [str(appid) for appid in duplicate_appids]
+                genre_game_df = genre_game_df.filter(
+                    ~pl.col('appid').cast(str).is_in(duplicate_appids_str)
+                )
+                category_game_df = category_game_df.filter(
+                    ~pl.col('appid').cast(str).is_in(duplicate_appids_str)
+                )
+                publisher_game_df = publisher_game_df.filter(
+                    ~pl.col('appid').cast(str).is_in(duplicate_appids_str)
+                )
+                log.info(f"Filtered out {len(duplicate_appids)} games with duplicate names (already in DB)")
+
+        total_games = len(unique_games)
+        log.info(f"Processing {total_games} unique games (filtered from {original_count})...")
         games_inserted = 0
 
         for batch_start in range(0, total_games, batch_size):

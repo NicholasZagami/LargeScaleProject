@@ -74,9 +74,9 @@ with tab_overview:
         with c3:
             kpi_card("Paid games", f"{int(row['paid_games']):,}")
         with c4:
-            # review_score 0-100 -> 0-5 stelle
+            # review_score 0-9 → 0-5 stelle
             avg_score = float(row["avg_score_0_100"]) if row["avg_score_0_100"] is not None else 0.0
-            kpi_card("Rating medio", f"{avg_score / 20.0:.2f} ⭐")
+            kpi_card("Rating medio", f"{avg_score * 5 / 9:.2f} ⭐")
 
     section_divider()
 
@@ -115,7 +115,7 @@ with tab_prices:
             st.info("Non disponibile (mancano `free_to_play` / `review_score`).")
         else:
             tmp = seg.copy()
-            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) / 20.0
+            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) * 5 / 9
             st.bar_chart(tmp.set_index("segment")[["avg_rating_0_5"]])
             st.caption("Confronto diretto tra qualità percepita dei giochi free-to-play e paid.")
 
@@ -138,7 +138,7 @@ with tab_prices:
         st.info("Non disponibile (manca `price` o `review_score`).")
     else:
         tmp = br.copy()
-        tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) / 20.0
+        tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) * 5 / 9
         st.bar_chart(tmp.set_index("bucket")[["avg_rating_0_5"]])
         st.caption("Interpretazione: fasce prezzo diverse possono avere rating simili → prezzo ≠ qualità.")
 
@@ -182,7 +182,7 @@ with tab_structure:
         with b:
             st.markdown("**Rating medio per genere**")
             tmp = ge.copy()
-            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) / 20.0
+            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) * 5 / 9
             st.bar_chart(tmp.set_index("genre")[["avg_rating_0_5"]])
             st.caption("Interpretazione: mostra differenze di qualità percepita tra community di generi diversi.")
 
@@ -211,7 +211,7 @@ with tab_structure:
             st.info("Non disponibile o filtri troppo restrittivi.")
         else:
             tmp = top_pub.copy()
-            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) / 20.0
+            tmp["avg_rating_0_5"] = tmp["avg_score_0_100"].astype(float) * 5 / 9
             st.bar_chart(tmp.set_index("publisher")[["avg_rating_0_5"]])
             st.caption("Interpretazione: evidenzia publisher consistenti (rating alto su più titoli).")
 
