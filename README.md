@@ -1,5 +1,10 @@
 # Large Scale Data Management – Steam Reviews Data Warehouse
 
+<p align="center">
+  <img width="300" src="https://github.com/user-attachments/assets/3328b948-2a9a-469a-b96c-d43d2255d2b3" />
+</p>
+
+
 This repository contains the implementation and documentation of a **Large Scale Data Management** project focused on the analysis of the **Steam Games and Reviews dataset**.
 
 The project covers the complete data pipeline, including:
